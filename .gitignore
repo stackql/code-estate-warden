@@ -216,3 +216,22 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# StackQL
+#   Approot (provider cache, readline history, downloaded binary), local config,
+#   and binaries or release archives dropped in the repo root.
+/.stackql
+.stackqlrc
+/stackql
+/stackql.exe
+stackql_*.zip
+stackql_*.pkg
+
+# Credentials (.env.example is the only env file that is checked in)
+.env
+.env.*
+!.env.example
+
+# repo-warden run output (snapshots hold the security posture of every repo)
+/repo-warden.db*
+/reports/

@@ -1,0 +1,32 @@
+# repo-warden configuration
+
+# Enterprise slug, recorded with every run.
+enterprise = "stackql"
+
+# Org allowlist. Nothing outside these orgs is read or changed.
+orgs = ["stackql", "stackql-labs", "stackql-registry"]
+
+# Repos skipped by every check and never remediated, as "org/repo".
+exclude_repos = []
+
+# Copilot model used by compile-policy and plan.
+model = "gpt-5-mini"
+
+# Label on every issue repo-warden raises, also used to find existing ones.
+issue_label = "repo-warden"
+
+# Snapshot, findings and audit database.
+database = "repo-warden.db"
+
+[severity]
+secret_scanning = "high"
+push_protection = "high"
+dependabot_alerts = "high"
+default_branch_protected = "high"
+org_two_factor = "high"
+dependabot_security_updates = "medium"
+code_scanning = "medium"
+private_vuln_reporting = "medium"
+org_security_configuration = "medium"
+license_file = "low"
+security_md = "low"
