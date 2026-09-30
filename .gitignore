@@ -19,3 +19,6 @@ stackql_*.pkg
 
 # repo-warden run output (findings hold the security posture of every repo)
 /runs/
+
+# Session hand-off notes for the next Claude Code session
+/resume_session.md

@@ -121,6 +121,10 @@ test/
 runs/               gitignored: <run_id>.json findings per run
 ```
 
+## Session notes
+
+If `resume_session.md` exists at the repo root (gitignored), read it before anything else. It holds the state of the current build session: what is done, what has not run live yet, and the rules the user set for the next session.
+
 ## Out of scope for v1
 
 GitLab or other forges, GHAS alert triage, secret rotation, dependency upgrades, anything that modifies code other than adding LICENSE or SECURITY.md via the coding agent.
