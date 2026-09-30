@@ -2,7 +2,6 @@
 
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { unzipSync } from "fflate";
@@ -16,12 +15,12 @@ const EXE = process.platform === "win32" ? "stackql.exe" : "stackql";
 const LOCAL = join(APPROOT, EXE);
 const RELEASES = "https://releases.stackql.io/stackql/latest";
 
-export type Row = Record<string, unknown>;
+/** Every value comes back as a string, booleans and numbers included. */
+export type Row = Record<string, string>;
 
-export interface Options {
-  /** SQLite file for the SQL backend. Without it the backend is in memory and nothing persists. */
-  db?: string;
-  tokenVar?: string;
+export interface Output {
+  stdout: string;
+  stderr: string;
 }
 
 export class StackQLError extends Error {}
@@ -59,14 +58,13 @@ export async function install(): Promise<string> {
   return LOCAL;
 }
 
-/** Run one statement and return what it printed. stackql exits 0 on failure. */
-export async function run(sql: string, { db, tokenVar = READ_TOKEN_VAR }: Options = {}) {
+/** Run one statement with the in memory backend and return what it printed. stackql exits 0 on failure. */
+export async function run(sql: string, tokenVar = READ_TOKEN_VAR): Promise<Output> {
   const auth = JSON.stringify({ [PROVIDER]: { type: "bearer", credentialsenvvar: tokenVar } });
-  const args = ["exec", "--approot", APPROOT, "--auth", auth, "--output", "json"];
-  if (db) args.push("--sqlBackend", JSON.stringify({ dsn: `file:${db}` }));
   // "--" ends flag parsing, so a statement may start with a SQL comment
+  const args = ["exec", "--approot", APPROOT, "--auth", auth, "--output", "json", "--", sql];
   try {
-    const { stdout, stderr } = await io.spawn(binary(), [...args, "--", sql], { maxBuffer: 2 ** 28 });
+    const { stdout, stderr } = await io.spawn(binary(), args, { maxBuffer: 2 ** 28 });
     return { stdout: stdout.trim(), stderr: stderr.trim() };
   } catch (e) {
     const missing = (e as NodeJS.ErrnoException).code === "ENOENT";
@@ -76,23 +74,15 @@ export async function run(sql: string, { db, tokenVar = READ_TOKEN_VAR }: Option
   }
 }
 
-/** Run the statement in a .sql file after filling `{{name}}` placeholders. */
-export async function runFile(path: string, vars: Record<string, string>, options?: Options) {
-  const sql = (await readFile(path, "utf8")).replace(/\{\{(\w+)\}\}/g, (_, name: string) => {
-    const value = vars[name];
-    if (value === undefined) throw new StackQLError(`${path}: no value for {{${name}}}`);
-    return value;
-  });
-  return run(sql, options);
-}
-
-/** Run one statement and return its rows. An error is stderr output with nothing on stdout. */
-export async function query(sql: string, options?: Options): Promise<Row[]> {
-  const { stdout, stderr } = await run(sql, options);
+/** Rows from a statement's output. An error is stderr output with nothing on stdout. */
+export function rows({ stdout, stderr }: Output): Row[] {
   if (!stdout && stderr) throw new StackQLError(stderr);
   // an empty result set is printed as null
   return stdout ? (JSON.parse(stdout) ?? []) : [];
 }
+
+export const query = async (sql: string, tokenVar?: string): Promise<Row[]> =>
+  rows(await run(sql, tokenVar));
 
 export async function providerVersion(): Promise<string> {
   const row = (await query("SHOW PROVIDERS")).find((r) => r.name === PROVIDER);

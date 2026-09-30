@@ -8,7 +8,7 @@ Origin: built during the GitHub Secure Open Source Fund (Session 5) to scale the
 
 Five layers, in order. Keep them separate. The agent only touches layers 2 and 5.
 
-1. Inventory (deterministic) - StackQL queries in `sql/snapshot/*.sql` enumerate enterprise -> orgs -> repos -> settings and write a point-in-time snapshot as materialized views in a StackQL SQLite backend file. Nothing else talks to the GitHub API for reads.
+1. Inventory (deterministic) - StackQL queries in `sql/snapshot/*.sql` enumerate orgs -> repos -> settings with the in memory backend; the rows are written with `node:sqlite` into a point-in-time snapshot, one table per source, in a fresh `runs/<run_id>.db`. Nothing else talks to the GitHub API for reads.
 2. Policy (agentic) - the Copilot SDK agent reads the policy prompt (`policy/*.md`) and produces a policy manifest: which checks are in scope, thresholds, exemptions. Humans can also hand-write the manifest and skip the agent.
 3. Evaluate (deterministic) - each check is a SQL query in `sql/checks/<check_id>.sql` run against the snapshot. Output is a findings table with a stable schema. No LLM involvement.
 4. Report (deterministic) - findings rendered as terminal table, markdown, and a GitHub Actions job summary. Findings are kept per run in `runs/<run_id>.json` so runs can be diffed (drift).
@@ -57,7 +57,7 @@ Archived repos are `na` for every check; that rule lives in each check's SQL, no
 - Provider: `github`. Pull with `REGISTRY PULL github` on first run.
 - Use StackQL two ways: the `stackql` binary (spawned from `src/stackql.ts`) directly for the inventory snapshot, and the StackQL MCP server exposed to the Copilot agent for ad hoc reasoning queries. Do not let the agent build the snapshot.
 - Prefer org security configurations (GitHub's security configurations API) over per-repo PATCHes when remediating the core controls. Per-repo mutations are the fallback for exceptions.
-- Snapshot files: each source is a `CREATE MATERIALIZED VIEW` written through `--sqlBackend` into its own fresh SQLite file, in parallel, then the views are merged into one file per run under `runs/`. Never `REFRESH` (a failed refresh leaves the view empty), never `PURGE` (it empties or drops materialized views), and never point two stackql processes at one file (they race on provider discovery). Analyse the run file with `node:sqlite`, not through stackql, which does not evaluate expressions over views.
+- Collection and persistence are separate. Each `sql/snapshot/*.sql` is a plain `SELECT` run by stackql with its in memory backend (`--output json`, every value a string); `src/snapshot.ts` coerces `true`/`false`/`null` and inserts the rows into `runs/<run_id>.db`. A query with an `{{org}}` placeholder runs once per org, at most six stackql processes at a time (GitHub's secondary rate limit is about 900 calls a minute). Do not go back to materialized views or a file backend: `PURGE` empties or drops views, a failed `REFRESH` leaves a view empty, two processes on one file race on provider discovery, and stackql does not evaluate expressions over views (stackql/stackql#798 to #801).
 - Pagination and rate limits: snapshot once per run, evaluate offline. Respect `X-RateLimit-Remaining`; back off rather than fail the run.
 - Every StackQL mutation used for remediation must have a matching read that confirms the new state. Apply = mutate, re-read, record.
 
@@ -97,7 +97,7 @@ src/
   cli.ts            commander: snapshot | evaluate | plan | apply | run
   config.ts         zod schema + loader for repo-warden.toml
   stackql.ts        spawn stackql, run .sql files, return rows
-  snapshot.ts       runs sql/snapshot/*.sql (materialized views)
+  snapshot.ts       runs sql/snapshot/*.sql per org, rows -> runs/<run_id>.db
   evaluate.ts       runs sql/checks/*.sql -> findings[]
   report.ts         table to terminal, markdown, job summary
   agent.ts          Copilot SDK session, tools, permission handler

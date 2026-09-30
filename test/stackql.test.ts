@@ -1,7 +1,4 @@
 import assert from "node:assert/strict";
-import { rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, mock, test } from "node:test";
 import * as stackql from "../src/stackql.ts";
 
@@ -30,32 +27,25 @@ test("query throws on stderr with nothing on stdout", async () => {
 
 test("query reads the token from the named variable", async () => {
   const spawn = fake("[]");
-  await stackql.query("SELECT 1", { tokenVar: stackql.WRITE_TOKEN_VAR });
+  await stackql.query("SELECT 1", stackql.WRITE_TOKEN_VAR);
   const args = spawn.mock.calls[0]?.arguments[1] ?? [];
   const auth = args[args.indexOf("--auth") + 1] ?? "";
   assert.ok(auth.includes(stackql.WRITE_TOKEN_VAR));
   assert.ok(!auth.includes(stackql.READ_TOKEN_VAR));
 });
 
-test("the statement follows a -- separator and the db flag is only set when asked", async () => {
+test("the statement follows a -- separator and the backend stays in memory", async () => {
   const spawn = fake("[]");
   await stackql.query("-- comment\nSELECT 1");
   const args = spawn.mock.calls[0]?.arguments[1] ?? [];
   assert.deepEqual(args.slice(-2), ["--", "-- comment\nSELECT 1"]);
   assert.ok(!args.includes("--sqlBackend"));
-  await stackql.query("SELECT 1", { db: "runs/x.db" });
-  const withDb = spawn.mock.calls[1]?.arguments[1] ?? [];
-  assert.equal(withDb[withDb.indexOf("--sqlBackend") + 1], '{"dsn":"file:runs/x.db"}');
 });
 
-test("runFile fills placeholders and rejects unknown ones", async () => {
-  const spawn = fake("[]");
-  const file = join(tmpdir(), `warden-${process.pid}.sql`);
-  writeFileSync(file, "SELECT * FROM t WHERE org IN ({{orgs}})");
-  await stackql.runFile(file, { orgs: "'a', 'b'" });
-  assert.equal(spawn.mock.calls[0]?.arguments[1]?.at(-1), "SELECT * FROM t WHERE org IN ('a', 'b')");
-  await assert.rejects(stackql.runFile(file, {}), /no value for \{\{orgs\}\}/);
-  rmSync(file);
+test("rows applies the error rule to captured output", () => {
+  assert.deepEqual(stackql.rows({ stdout: '[{"a":"1"}]', stderr: "http response status code: 404" }), [{ a: "1" }]);
+  assert.deepEqual(stackql.rows({ stdout: "null", stderr: "http response status code: 404" }), []);
+  assert.throws(() => stackql.rows({ stdout: "", stderr: "could not locate table" }), /could not locate/);
 });
 
 test("a missing binary points at bootstrap", async () => {
