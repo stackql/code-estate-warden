@@ -1,0 +1,35 @@
+name: audit
+
+# Scheduled posture audit: snapshot, evaluate, job summary. Plans only when a Copilot token is
+# configured. Never applies anything: apply needs a human, a write token and --apply.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      REPO_WARDEN_READ_TOKEN: ${{ secrets.REPO_WARDEN_READ_TOKEN }}
+      COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run bootstrap
+      - run: node src/cli.ts snapshot
+      - run: node src/cli.ts evaluate
+      - if: env.COPILOT_GITHUB_TOKEN != ''
+        run: node src/cli.ts plan
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runs
+          path: runs/

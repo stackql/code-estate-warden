@@ -91,11 +91,13 @@ program
   .command("run")
   .description("snapshot -> evaluate -> plan")
   .action(async () => {
+    const started = Date.now();
     const result = await snapshot(loadConfig(program.opts().config));
     console.log("");
     report(result.run_id);
     console.log("");
     await makePlan(result.run_id);
+    console.log(`\nrun complete in ${Math.round((Date.now() - started) / 1000)}s`);
   });
 
 try {
