@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Config } from "../src/config.ts";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +8,7 @@ import { checkIds, evaluate, findingsPath, latestRun, previousEvaluation } from 
 import { drift, failures, jobSummary, markdown, summarise, terminal } from "../src/report.ts";
 import { load, readFixture } from "./fixture.ts";
 
-const config = { enterprise: "acme", orgs: ["acme", "beta"], exclude_repos: ["beta/skip"], model: "m", issue_label: "l", severity: { secret_scanning: "high" as const, license_file: "low" as const } };
+const config = Config.parse({ enterprise: "acme", orgs: ["acme", "beta"], exclude_repos: ["beta/skip"], model: "m", issue_label: "l", severity: { secret_scanning: "high" as const, license_file: "low" as const } });
 const RUN = "01FIXTURE0000000000000000A";
 const PREVIOUS = "01FIXTURE00000000000000009";
 const cwd = process.cwd();

@@ -79,7 +79,10 @@ Archived repos are `na` for every check; that rule lives in each check's SQL, no
 - Idempotent: before raising an issue, search the repo for an open issue with label `repo-warden` and the same `check_id` in the title. Update it rather than duplicate. Same for branches and PRs (`repo-warden/<check_id>`).
 - Issues raised in affected repos include: the finding, the evidence, the exact change proposed, and a link back to the run report. For `pr` remediations, the issue is written so it can be assigned to the Copilot coding agent as is (clear acceptance criteria, the file content to add). Assignment to Copilot is a separate `--assign-copilot` flag.
 - Never mutate a repo outside the orgs listed in config. Never touch archived repos. Never disable a control.
-- Every apply writes an audit row (`who`, `what`, `before`, `after`, `run_id`).
+- Every apply writes an audit row (`who`, `what`, `before`, `after`, `run_id`) to the `audit` table in the run file.
+- `plan` is one prompt per org that has failures; orgs with nothing failing cost nothing. The change set is `runs/<run_id>.plan.json`; `apply` reads it back, so plan and apply can be separate sessions.
+- `apply` only knows the mutations in `MUTATIONS` in `remediate.ts` (v1: private vulnerability reporting), gated by `apply_checks` in config. An org level `setting` proposal for such a check is applied per failing repo, since org security configurations are not automated in v1; the audit row says so. Other org level settings, and every `manual` item, are reported and skipped.
+- Issue bodies come from `templates/issue.md` with the per check text from `templates/<check_id>.md` (`generic.md` otherwise). `pr` items embed the file content (`templates/SECURITY.md`) and acceptance criteria so `--assign-copilot` can hand them to the Copilot coding agent (`copilot-swe-agent[bot]`) as they are.
 
 ## Stack and conventions
 
@@ -111,7 +114,7 @@ sql/
   checks/           one .sql per check, findings schema out
 instructions/       system_prompt.md
 policy/             policy prompts (core-controls.md is the SOSF baseline)
-templates/          issue.md, SECURITY.md
+templates/          issue.md frame, <check_id>.md details, SECURITY.md content
 test/
   fixtures/         small JSON row sets per check
   *.test.ts

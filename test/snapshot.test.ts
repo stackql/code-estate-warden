@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Config } from "../src/config.ts";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +8,7 @@ import { after, before, mock, test } from "node:test";
 import { columns, dbPath, insert, snapshot, ulid } from "../src/snapshot.ts";
 import * as stackql from "../src/stackql.ts";
 
-const config = { enterprise: "acme", orgs: ["acme", "acme-labs"], exclude_repos: [], model: "m", issue_label: "l", severity: {} };
+const config = Config.parse({ enterprise: "acme", orgs: ["acme", "acme-labs"], exclude_repos: [], model: "m", issue_label: "l", severity: {} });
 const cwd = process.cwd();
 let work: string;
 

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Config } from "../src/config.ts";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,7 +11,7 @@ import type { ChangeItem } from "../src/types.ts";
 import { FakeRuntime } from "./fake.ts";
 import { load, readFixture } from "./fixture.ts";
 
-const config = { enterprise: "acme", orgs: ["acme", "beta"], exclude_repos: ["beta/skip"], model: "m", issue_label: "l", severity: {} };
+const config = Config.parse({ enterprise: "acme", orgs: ["acme", "beta"], exclude_repos: ["beta/skip"], model: "m", issue_label: "l", severity: {} });
 const RUN = "01FIXTURE0000000000000000A";
 const cwd = process.cwd();
 let work: string;

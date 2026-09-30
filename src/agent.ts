@@ -21,14 +21,16 @@ const POLICY = fileURLToPath(new URL("../policy/core-controls.md", import.meta.u
 const TIMEOUT_MS = 10 * 60 * 1000;
 const LIMIT = 200;
 
-/** A prompt file with {{name}} placeholders filled in. */
-export function instruction(name: string, vars: Record<string, string> = {}): string {
-  const text = readFileSync(`${INSTRUCTIONS}/${name}.md`, "utf8");
-  return text.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
-    if (!(key in vars)) throw new Error(`${name}.md: no value for {{${key}}}`);
+/** Fill {{name}} placeholders in a prose file's text. */
+export const fill = (text: string, vars: Record<string, string>): string =>
+  text.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
+    if (!(key in vars)) throw new Error(`no value for {{${key}}}`);
     return vars[key]!;
   });
-}
+
+/** A prompt file from instructions/ with its placeholders filled in. */
+export const instruction = (name: string, vars: Record<string, string> = {}): string =>
+  fill(readFileSync(`${INSTRUCTIONS}/${name}.md`, "utf8"), vars);
 
 // any: the tool list mixes parameter types, each handler is typed by its own schema
 export interface AgentTool<T = any> {

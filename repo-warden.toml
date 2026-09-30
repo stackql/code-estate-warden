@@ -15,6 +15,12 @@ model = "gpt-5-mini"
 # Label on every issue repo-warden raises, also used to find existing ones.
 issue_label = "repo-warden"
 
+# Checks whose setting changes `apply --apply` may make. Everything else stays plan only.
+apply_checks = ["private_vuln_reporting"]
+
+# License proposed for repos without one (SPDX id).
+license = "MIT"
+
 [severity]
 secret_scanning = "high"
 push_protection = "high"

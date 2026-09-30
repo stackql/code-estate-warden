@@ -11,6 +11,10 @@ export const Config = z.strictObject({
   exclude_repos: z.array(RepoName).default([]),
   model: z.string().min(1),
   issue_label: z.string().min(1).default("repo-warden"),
+  /** checks whose setting changes apply may make; everything else is plan only */
+  apply_checks: z.array(z.string()).default(["private_vuln_reporting"]),
+  /** SPDX id of the license proposed for repos without one */
+  license: z.string().min(1).default("MIT"),
   severity: z.record(z.string(), Severity).default({}),
 });
 
