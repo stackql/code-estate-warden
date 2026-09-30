@@ -56,6 +56,7 @@ Org-level checks (2FA required, org security configurations present) are named `
 - Provider: `github`. Pull with `REGISTRY PULL github` on first run.
 - Use StackQL two ways: the `stackql` binary (spawned from `src/stackql.ts`) directly for the inventory snapshot, and the StackQL MCP server exposed to the Copilot agent for ad hoc reasoning queries. Do not let the agent build the snapshot.
 - Prefer org security configurations (GitHub's security configurations API) over per-repo PATCHes when remediating the core controls. Per-repo mutations are the fallback for exceptions.
+- Snapshot files: each source is a `CREATE MATERIALIZED VIEW` written through `--sqlBackend` into its own fresh SQLite file, in parallel, then the views are merged into one file per run under `runs/`. Never `REFRESH` (a failed refresh leaves the view empty), never `PURGE` (it empties or drops materialized views), and never point two stackql processes at one file (they race on provider discovery). Analyse the run file with `node:sqlite`, not through stackql, which does not evaluate expressions over views.
 - Pagination and rate limits: snapshot once per run, evaluate offline. Respect `X-RateLimit-Remaining`; back off rather than fail the run.
 - Every StackQL mutation used for remediation must have a matching read that confirms the new state. Apply = mutate, re-read, record.
 

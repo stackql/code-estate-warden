@@ -4,6 +4,7 @@
 import { existsSync } from "node:fs";
 import { Command } from "commander";
 import { loadConfig } from "./config.ts";
+import { snapshot } from "./snapshot.ts";
 import * as stackql from "./stackql.ts";
 
 if (existsSync(".env")) process.loadEnvFile();
@@ -21,7 +22,7 @@ program
   .command("bootstrap")
   .description("check the stackql binary (download it if missing) and pull the github provider")
   .action(async () => {
-    if (!(await stackql.available())) await stackql.install();
+    if (!(await stackql.version())) await stackql.install();
     console.log(`stackql binary: ${stackql.binary()}`);
     console.log(`${stackql.PROVIDER} provider: ${await stackql.pullProvider()}`);
   });
@@ -29,7 +30,13 @@ program
 program
   .command("snapshot")
   .description("build the inventory snapshot with StackQL")
-  .action(stub("snapshot"));
+  .action(async () => {
+    const config = loadConfig(program.opts().config);
+    const started = Date.now();
+    const result = await snapshot(config);
+    const seconds = Math.round((Date.now() - started) / 1000);
+    console.log(`run ${result.run_id}: ${result.repos} repos across ${config.orgs.length} orgs in ${seconds}s -> ${result.db}`);
+  });
 
 program
   .command("evaluate")
