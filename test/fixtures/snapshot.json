@@ -1,6 +1,6 @@
 {
   "tables": {
-    "run": [{ "run_id": "01FIXTURE0000000000000000A", "finished_at": "2026-01-02T00:00:00.000Z" }],
+    "run": [{ "run_id": "01FIXTURE0000000000000000A", "finished_at": "2026-01-02T00:00:00.000Z", "login": "tester", "orgs": "[\"acme\",\"beta\"]" }],
     "orgs": [
       { "org": "acme", "two_factor_requirement_enabled": true },
       { "org": "beta", "two_factor_requirement_enabled": false }
@@ -10,13 +10,13 @@
       { "org": "beta", "name": "GitHub recommended", "target_type": "global", "enforcement": "unenforced" }
     ],
     "repos": [
-      { "org": "acme", "name": "good", "archived": 0, "private": 0, "default_branch": "main",
+      { "org": "acme", "name": "good", "archived": 0, "private": 0, "fork": 0, "default_branch": "main",
         "license": { "key": "mit", "spdx_id": "MIT" },
         "security_and_analysis": { "secret_scanning": { "status": "enabled" }, "secret_scanning_push_protection": { "status": "enabled" }, "dependabot_security_updates": { "status": "enabled" } } },
-      { "org": "acme", "name": "bad", "archived": 0, "private": 0, "default_branch": "main", "license": null,
+      { "org": "acme", "name": "bad", "archived": 0, "private": 0, "fork": 0, "default_branch": "main", "license": null,
         "security_and_analysis": { "secret_scanning": { "status": "disabled" }, "secret_scanning_push_protection": { "status": "disabled" }, "dependabot_security_updates": { "status": "disabled" } } },
-      { "org": "acme", "name": "old", "archived": 1, "private": 0, "default_branch": "main", "license": null, "security_and_analysis": null },
-      { "org": "beta", "name": "skip", "archived": 0, "private": 1, "default_branch": "main", "license": null, "security_and_analysis": null }
+      { "org": "acme", "name": "old", "archived": 1, "private": 0, "fork": 0, "default_branch": "main", "license": null, "security_and_analysis": null },
+      { "org": "beta", "name": "skip", "archived": 0, "private": 1, "fork": 0, "default_branch": "main", "license": null, "security_and_analysis": null }
     ],
     "repo_private_vulnerability_reporting": [
       { "org": "acme", "repo": "good", "enabled": true },

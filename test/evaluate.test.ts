@@ -36,7 +36,7 @@ after(() => {
 
 test("evaluate runs every check, applies exclusions and writes the findings", () => {
   assert.equal(latestRun(), RUN);
-  const evaluation = evaluate(config);
+  const evaluation = evaluate(config, RUN, null);
   assert.equal(evaluation.run_id, RUN);
   assert.equal(evaluation.observed_at, "2026-01-02T00:00:00.000Z");
   const repoChecks = checkIds().filter((id) => !id.startsWith("org_")).length;
@@ -60,7 +60,7 @@ test("evaluate runs every check, applies exclusions and writes the findings", ()
 });
 
 test("drift compares with the previous run", () => {
-  const evaluation = evaluate(config);
+  const evaluation = evaluate(config, RUN, null);
   const previous = previousEvaluation(RUN);
   assert.equal(previous?.run_id, PREVIOUS);
   const change = drift(evaluation, previous);
@@ -72,7 +72,7 @@ test("drift compares with the previous run", () => {
 });
 
 test("report renders the summary, sorted by org then severity", () => {
-  const evaluation = evaluate(config);
+  const evaluation = evaluate(config, RUN, null);
   const rows = summarise(evaluation.findings);
   // acme has every check, beta only the org level ones since its one repo is excluded
   assert.equal(rows.length, checkIds().length + 2);

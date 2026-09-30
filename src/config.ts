@@ -3,12 +3,12 @@
 import { readFileSync } from "node:fs";
 import { parse } from "smol-toml";
 import { z } from "zod";
-import { Severity } from "./types.ts";
+import { RepoName, Severity } from "./types.ts";
 
 export const Config = z.strictObject({
   enterprise: z.string().min(1),
   orgs: z.array(z.string().min(1)).min(1),
-  exclude_repos: z.array(z.string().regex(/^[^/\s]+\/[^/\s]+$/, "expected org/repo")).default([]),
+  exclude_repos: z.array(RepoName).default([]),
   model: z.string().min(1),
   issue_label: z.string().min(1).default("repo-warden"),
   severity: z.record(z.string(), Severity).default({}),

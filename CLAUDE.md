@@ -9,8 +9,8 @@ Origin: built during the GitHub Secure Open Source Fund (Session 5) to scale the
 Five layers, in order. Keep them separate. The agent only touches layers 2 and 5.
 
 1. Inventory (deterministic) - StackQL queries in `sql/snapshot/*.sql` enumerate orgs -> repos -> settings with the in memory backend; the rows are written with `node:sqlite` into a point-in-time snapshot, one table per source, in a fresh `runs/<run_id>.db`. Nothing else talks to the GitHub API for reads.
-2. Policy (agentic) - the Copilot SDK agent reads the policy prompt (`policy/*.md`) and produces a policy manifest: which checks are in scope, thresholds, exemptions. Humans can also hand-write the manifest and skip the agent.
-3. Evaluate (deterministic) - each check is a SQL query in `sql/checks/<check_id>.sql` run against the snapshot. Output is a findings table with a stable schema. No LLM involvement.
+2. Policy (agentic) - the Copilot SDK agent reads the policy prompt (`policy/core-controls.md`) and compiles it into `policy/manifest.json`: which checks are in scope, their scope (all or public repos), fork and named exemptions. Humans can hand-write the manifest and skip the agent. The manifest is checked in and only recompiled on request (`plan --compile-policy`), one prompt.
+3. Evaluate (deterministic) - each check in the manifest is a SQL query in `sql/checks/<check_id>.sql` run against the snapshot. A finding the manifest exempts becomes `na` with `evidence.exempt` giving the reason. Output is a findings table with a stable schema. No LLM involvement.
 4. Report (deterministic) - findings rendered as terminal table, markdown, and a GitHub Actions job summary. Findings are kept per run in `runs/<run_id>.json` so runs can be diffed (drift).
 5. Remediate (agentic, gated) - the agent turns findings into a change set: repo setting mutations (StackQL), issues in affected repos, or issues assigned to the Copilot coding agent for file changes (LICENSE, SECURITY.md). Nothing is applied without `--apply`. Default is plan only.
 
@@ -63,12 +63,15 @@ Archived repos are `na` for every check; that rule lives in each check's SQL, no
 
 ## Copilot SDK
 
-- Node package `@github/copilot-sdk`. Auth via `COPILOT_GITHUB_TOKEN` (or the signed-in `gh` user). Each prompt counts against the subscription's premium request allowance, so batch work into as few prompts as possible: one prompt to compile policy, one prompt per remediation plan, not one per repo.
-- Session creation, tool definition (zod params) and the permission handler follow the installed SDK version. Read its types before writing against it. Do not guess.
-- Verify against the installed SDK version how MCP servers are declared (session option vs the Copilot CLI `mcp-config.json`). Use whichever the installed version supports and document it in the README. Do not guess.
-- Permission handler: approve read tools automatically, reject shell, and route any write tool through the plan/apply gate. Never use `approve_all` outside tests.
+- Node package `@github/copilot-sdk` (1.0.15 verified; the runtime is bundled per platform, no separate CLI install). Auth via `COPILOT_GITHUB_TOKEN`, else the signed-in `gh` user (`useLoggedInUser` defaults to true). Each prompt counts against the subscription's premium request allowance, so batch work into as few prompts as possible: one prompt to compile policy, one prompt per remediation plan, not one per repo.
+- Verified API: `new CopilotClient({ gitHubToken })`, `client.listModels()` (ids with `billing.multiplier`, not a premium request), `client.createSession({ model, systemMessage: { mode: "append", content }, tools, mcpServers, onPermissionRequest, streaming: false })`, `defineTool(name, { description, parameters: zodSchema, handler })`, `session.sendAndWait({ prompt }, zodSchema, timeoutMs)` for a structured reply. `CopilotRuntime.ask` refuses an unknown model id before spending a request.
+- MCP servers are a session option, not a config file: `mcpServers: { stackql: { type: "stdio", command, args } }`. The StackQL server is `stackql mcp --approot .stackql --auth <read token json> --mcp.server.type=stdio`, declared by `stackql.mcpServer()`.
+- Permission handler (`agent.ts`): approve `custom-tool` (our tools) and read only `mcp` calls, reject everything else including `shell` and `write`. Never use `approveAll` outside tests. `propose_change` is the only tool with a side effect and it only appends to the change set.
+- Every agentic step is `runtime.ask({ prompt, tools, schema })` on the `AgentRuntime` interface. Tests use `test/fake.ts`, which runs scripted tool calls and returns a canned reply, so the suite never spends a request.
+- Prompts are prose files in `instructions/` with `{{placeholders}}`, loaded by `instruction(name, vars)`.
 - Pin the model in config, default to the cheapest model that handles tool use reliably. Model choice is a config value, not a code change.
 - The agent layer must be swappable. Keep the provider behind the `AgentRuntime` interface in `src/agent.ts` so a Claude Code headless runtime can be added later without touching other layers.
+- Not yet exercised live (no Copilot allowance on the build day): session creation, the MCP server hand-off and structured replies. First live run: `repo-warden plan` on a fresh snapshot, watching for model id, MCP startup and tool call permission events.
 
 ## Remediation rules
 

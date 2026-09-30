@@ -58,11 +58,20 @@ export async function install(): Promise<string> {
   return LOCAL;
 }
 
+const auth = (tokenVar: string) =>
+  JSON.stringify({ [PROVIDER]: { type: "bearer", credentialsenvvar: tokenVar } });
+
+/** The StackQL MCP server the agent gets for ad hoc queries. Read token only. */
+export const mcpServer = () => ({
+  type: "stdio" as const,
+  command: binary(),
+  args: ["mcp", "--approot", APPROOT, "--auth", auth(READ_TOKEN_VAR), "--mcp.server.type=stdio"],
+});
+
 /** Run one statement with the in memory backend and return what it printed. stackql exits 0 on failure. */
 export async function run(sql: string, tokenVar = READ_TOKEN_VAR): Promise<Output> {
-  const auth = JSON.stringify({ [PROVIDER]: { type: "bearer", credentialsenvvar: tokenVar } });
   // "--" ends flag parsing, so a statement may start with a SQL comment
-  const args = ["exec", "--approot", APPROOT, "--auth", auth, "--output", "json", "--", sql];
+  const args = ["exec", "--approot", APPROOT, "--auth", auth(tokenVar), "--output", "json", "--", sql];
   try {
     const { stdout, stderr } = await io.spawn(binary(), args, { maxBuffer: 2 ** 28 });
     return { stdout: stdout.trim(), stderr: stderr.trim() };

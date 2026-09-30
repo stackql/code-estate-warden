@@ -10,10 +10,11 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import type { Config } from "./config.ts";
 import { RUNS, dbPath } from "./snapshot.ts";
-import { Finding } from "./types.ts";
+import { Finding, Manifest } from "./types.ts";
 
 // module relative so the CLI works from any directory; runs/ stays relative to the caller
 const CHECKS = fileURLToPath(new URL("../sql/checks", import.meta.url));
+const MANIFEST = fileURLToPath(new URL("../policy/manifest.json", import.meta.url));
 
 export interface Run {
   run_id: string;
@@ -29,6 +30,15 @@ export const checkIds = (): string[] =>
     .filter((f) => f.endsWith(".sql"))
     .sort()
     .map((f) => basename(f, ".sql"));
+
+/** Every check with its description, the leading comment of its SQL. */
+export const checks = (): { id: string; description: string }[] =>
+  checkIds().map((id) => {
+    const sql = readFileSync(join(CHECKS, `${id}.sql`), "utf8");
+    const comment = sql.split("\n").filter((line) => line.startsWith("--"));
+    const text = comment.map((line) => line.replace(/^--\s?/, "")).join(" ");
+    return { id, description: text.replace(`${id}: `, "") };
+  });
 
 /** Newest run in runs/. ULIDs sort by time. */
 export function latestRun(): string {
@@ -55,15 +65,45 @@ export function runCheck(db: DatabaseSync, checkId: string, run: Run, config: Co
   );
 }
 
-export function evaluate(config: Config, runId = latestRun()): Evaluation {
+/** The compiled policy, if one has been written. Without it every check runs and nothing is exempt. */
+export const loadManifest = (): Manifest | undefined =>
+  existsSync(MANIFEST) ? Manifest.parse(JSON.parse(readFileSync(MANIFEST, "utf8"))) : undefined;
+
+export const saveManifest = (manifest: Manifest): void =>
+  writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2) + "\n");
+
+type RepoFacts = { private: number; fork: number };
+
+/** A finding the policy exempts becomes na, with the reason in its evidence. */
+function exempt(f: Finding, manifest: Manifest, facts?: RepoFacts): Finding {
+  const rule = manifest.checks.find((c) => c.id === f.check_id);
+  if (!rule || f.repo === "*" || f.status === "na" || !facts) return f;
+  const reason =
+    (rule.scope === "public" && facts.private && "private repository") ||
+    (rule.exempt_forks && facts.fork && "fork") ||
+    (rule.exempt.includes(`${f.org}/${f.repo}`) && "listed in policy") ||
+    undefined;
+  if (!reason) return f;
+  return { ...f, status: "na", remediation: "none", evidence: { ...f.evidence, exempt: reason } };
+}
+
+/** Evaluate a run. The manifest defaults to the compiled policy on disk; null means no policy. */
+export function evaluate(config: Config, runId = latestRun(), manifest: Manifest | null = loadManifest() ?? null): Evaluation {
   if (!existsSync(dbPath(runId))) throw new Error(`no snapshot ${dbPath(runId)}`);
   const db = new DatabaseSync(dbPath(runId), { readOnly: true });
   const { finished_at } = db.prepare("SELECT finished_at FROM run").get() as { finished_at: string };
   const run = { run_id: runId, observed_at: finished_at };
   const excluded = new Set(config.exclude_repos.map((r) => r.toLowerCase()));
+  const inScope = new Set(manifest?.checks.map((c) => c.id) ?? checkIds());
+  const facts = new Map(
+    (db.prepare("SELECT org, name, private, fork FROM repos").all() as (RepoFacts & { org: string; name: string })[])
+      .map((r) => [`${r.org}/${r.name}`, r]),
+  );
   const findings = checkIds()
+    .filter((id) => inScope.has(id))
     .flatMap((id) => runCheck(db, id, run, config))
-    .filter((f) => !excluded.has(`${f.org}/${f.repo}`.toLowerCase()));
+    .filter((f) => !excluded.has(`${f.org}/${f.repo}`.toLowerCase()))
+    .map((f) => (manifest ? exempt(f, manifest, facts.get(`${f.org}/${f.repo}`)) : f));
   db.close();
   const evaluation = { ...run, findings };
   writeFileSync(findingsPath(runId), JSON.stringify(evaluation, null, 1));

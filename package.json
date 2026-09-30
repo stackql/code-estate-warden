@@ -17,6 +17,7 @@
     "test": "node --test \"test/*.test.ts\""
   },
   "dependencies": {
+    "@github/copilot-sdk": "^1.0.15",
     "commander": "^15.0.0",
     "fflate": "^0.8.3",
     "smol-toml": "^1.9.0",
