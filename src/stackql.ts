@@ -83,7 +83,10 @@ export async function run(sql: string, tokenVar = READ_TOKEN_VAR): Promise<Outpu
   }
 }
 
-/** Rows from a statement's output. An error is stderr output with nothing on stdout. */
+/**
+ * Rows from a statement's output. An error is stderr output with nothing on stdout, because stackql
+ * exits 0 either way (stackql/stackql#801, tracked here as stackql/repo-warden#1).
+ */
 export function rows({ stdout, stderr }: Output): Row[] {
   if (!stdout && stderr) throw new StackQLError(stderr);
   // an empty result set is printed as null
