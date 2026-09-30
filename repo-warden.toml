@@ -9,14 +9,11 @@ orgs = ["stackql", "stackql-labs", "stackql-registry"]
 # Repos skipped by every check and never remediated, as "org/repo".
 exclude_repos = []
 
-# Copilot model used by compile-policy and plan.
+# Copilot model used by plan.
 model = "gpt-5-mini"
 
 # Label on every issue repo-warden raises, also used to find existing ones.
 issue_label = "repo-warden"
-
-# Snapshot, findings and audit database.
-database = "repo-warden.db"
 
 [severity]
 secret_scanning = "high"

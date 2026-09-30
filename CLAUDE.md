@@ -8,13 +8,13 @@ Origin: built during the GitHub Secure Open Source Fund (Session 5) to scale the
 
 Five layers, in order. Keep them separate. The agent only touches layers 2 and 5.
 
-1. Inventory (deterministic) - StackQL queries enumerate enterprise -> orgs -> repos -> settings and write a point-in-time snapshot to SQLite. Nothing else talks to the GitHub API for reads.
-2. Policy (agentic) - the Copilot SDK agent reads the policy prompt (`policy/*.md`) and produces a policy manifest (`checks.yaml`): which checks are in scope, thresholds, exemptions. Humans can also hand-write the manifest and skip the agent.
-3. Evaluate (deterministic) - each check is a SQL query in `checks/<check_id>.sql` run against the snapshot. Output is a findings table with a stable schema. No LLM involvement.
-4. Report (deterministic) - findings rendered as terminal table, markdown, JSON, and a GitHub Actions job summary. History is kept so runs can be diffed (drift).
+1. Inventory (deterministic) - StackQL queries in `sql/snapshot/*.sql` enumerate enterprise -> orgs -> repos -> settings and write a point-in-time snapshot as materialized views in a StackQL SQLite backend file. Nothing else talks to the GitHub API for reads.
+2. Policy (agentic) - the Copilot SDK agent reads the policy prompt (`policy/*.md`) and produces a policy manifest: which checks are in scope, thresholds, exemptions. Humans can also hand-write the manifest and skip the agent.
+3. Evaluate (deterministic) - each check is a SQL query in `sql/checks/<check_id>.sql` run against the snapshot. Output is a findings table with a stable schema. No LLM involvement.
+4. Report (deterministic) - findings rendered as terminal table, markdown, and a GitHub Actions job summary. Findings are kept per run in `runs/<run_id>.json` so runs can be diffed (drift).
 5. Remediate (agentic, gated) - the agent turns findings into a change set: repo setting mutations (StackQL), issues in affected repos, or issues assigned to the Copilot coding agent for file changes (LICENSE, SECURITY.md). Nothing is applied without `--apply`. Default is plan only.
 
-The two agentic layers use the same Copilot SDK session factory in `repo_warden/agent.py`. Everything the agent needs is exposed as SDK tools wrapping the deterministic layers, plus the StackQL MCP server for ad hoc queries.
+The two agentic layers use the same Copilot SDK session factory in `src/agent.ts`. Everything the agent needs is exposed as SDK tools wrapping the deterministic layers, plus the StackQL MCP server for ad hoc queries.
 
 ## Findings schema
 
@@ -25,7 +25,7 @@ Every check emits rows with exactly these columns. Do not add per-check columns;
 | run_id | text | ULID per run |
 | org | text | |
 | repo | text | |
-| check_id | text | matches `checks/<check_id>.sql` |
+| check_id | text | matches `sql/checks/<check_id>.sql` |
 | status | text | `pass`, `fail`, `na`, `unknown` |
 | severity | text | `high`, `medium`, `low` |
 | evidence | json | raw values the decision was made on |
@@ -49,24 +49,24 @@ Every check emits rows with exactly these columns. Do not add per-check columns;
 | security_md | `contents/SECURITY.md` in repo, else `SECURITY.md` in the org `.github` repo. Inherited counts as pass with evidence noting inheritance. | pr |
 | archived_excluded | archived repos are `na` for every other check | none |
 
-Org-level checks (2FA required, org security configurations present) live in `checks/org/` and emit rows with `repo = '*'`.
+Org-level checks (2FA required, org security configurations present) are named `sql/checks/org_*.sql` and emit rows with `repo = '*'`.
 
 ## StackQL
 
 - Provider: `github`. Pull with `REGISTRY PULL github` on first run.
-- Use StackQL two ways: the `stackql` binary (or `pystackql`) directly for the inventory snapshot, and the StackQL MCP server exposed to the Copilot agent for ad hoc reasoning queries. Do not let the agent build the snapshot.
+- Use StackQL two ways: the `stackql` binary (spawned from `src/stackql.ts`) directly for the inventory snapshot, and the StackQL MCP server exposed to the Copilot agent for ad hoc reasoning queries. Do not let the agent build the snapshot.
 - Prefer org security configurations (GitHub's security configurations API) over per-repo PATCHes when remediating the core controls. Per-repo mutations are the fallback for exceptions.
 - Pagination and rate limits: snapshot once per run, evaluate offline. Respect `X-RateLimit-Remaining`; back off rather than fail the run.
 - Every StackQL mutation used for remediation must have a matching read that confirms the new state. Apply = mutate, re-read, record.
 
 ## Copilot SDK
 
-- Python package `github-copilot-sdk`, import `copilot`. The CLI is bundled with the Python package. Auth via `COPILOT_GITHUB_TOKEN` (or the signed-in `gh` user). Each prompt counts against the subscription's premium request allowance, so batch work into as few prompts as possible: one prompt to compile policy, one prompt per remediation plan, not one per repo.
-- Session creation: `CopilotClient()` -> `client.create_session(model=..., tools=[...], system_message={...}, on_permission_request=...)`. Tools are defined with `@define_tool` and pydantic params.
-- Verify against the installed SDK version how MCP servers are declared (session option vs the Copilot CLI `mcp-config.json`). Use whichever the installed version supports and document it in `docs/mcp.md`. Do not guess.
+- Node package `@github/copilot-sdk`. Auth via `COPILOT_GITHUB_TOKEN` (or the signed-in `gh` user). Each prompt counts against the subscription's premium request allowance, so batch work into as few prompts as possible: one prompt to compile policy, one prompt per remediation plan, not one per repo.
+- Session creation, tool definition (zod params) and the permission handler follow the installed SDK version. Read its types before writing against it. Do not guess.
+- Verify against the installed SDK version how MCP servers are declared (session option vs the Copilot CLI `mcp-config.json`). Use whichever the installed version supports and document it in the README. Do not guess.
 - Permission handler: approve read tools automatically, reject shell, and route any write tool through the plan/apply gate. Never use `approve_all` outside tests.
 - Pin the model in config, default to the cheapest model that handles tool use reliably. Model choice is a config value, not a code change.
-- The agent layer must be swappable. Keep the provider behind `AgentRuntime` protocol in `repo_warden/agent.py` so a Claude Code headless runtime can be added later without touching other layers.
+- The agent layer must be swappable. Keep the provider behind the `AgentRuntime` interface in `src/agent.ts` so a Claude Code headless runtime can be added later without touching other layers.
 
 ## Remediation rules
 
@@ -78,10 +78,12 @@ Org-level checks (2FA required, org security configurations present) live in `ch
 
 ## Stack and conventions
 
-- Python 3.12, `uv` for env and lockfile, `typer` for CLI, `rich` for terminal output, `pydantic` for models, SQLite via stdlib, `ruff` and `pyright` clean.
-- CLI: `repo-warden snapshot | compile-policy | evaluate | report | plan | apply | history`. `repo-warden run` chains snapshot -> evaluate -> report -> plan.
+- TypeScript on Node 24, run directly by Node (type stripping, erasable syntax only). No build step, no transpiler, no bundler. `npm` for dependencies and scripts.
+- `commander` for CLI, `zod` for models and validation, `smol-toml` for config, `node:test` for tests. Prefer the Node standard library over a dependency. `tsc` clean (`npm run check`).
+- Prose lives in `.md` files and queries live in `.sql` files. TypeScript modules load them. Do not inline prompts, templates, policy text or SQL in code.
+- CLI: `repo-warden snapshot | evaluate | plan | apply | run`. `repo-warden run` chains snapshot -> evaluate -> plan. `bootstrap` checks the stackql binary and pulls the provider.
 - Config in `repo-warden.toml`: enterprise slug, org allowlist, repo exclusions, model, severity mapping, issue label.
-- Tests: unit tests for every check SQL against fixture snapshots in `tests/fixtures/*.db`; no live API calls in tests. Agent layer tested with a fake runtime.
+- Tests: unit tests for every check SQL against small JSON row sets in `test/fixtures/`; no live API calls in tests. Agent layer tested with a fake runtime.
 - GitHub Actions: `.github/workflows/audit.yml` runs `repo-warden run` on a schedule and posts the job summary; never runs `apply` unattended.
 - Commit style: conventional commits. Small PRs. No generated code without a test.
 - Writing style in docs and issue templates: matter of fact, no hyperbole, no em dashes (use `-`), no unicode arrows (use `->`).
@@ -89,21 +91,26 @@ Org-level checks (2FA required, org security configurations present) live in `ch
 ## Repo layout
 
 ```
-repo_warden/
-  cli.py            typer entrypoint
-  config.py
-  inventory.py      StackQL snapshot -> SQLite
-  policy.py         prompt -> checks.yaml (agentic) and manifest loader
-  evaluate.py       runs checks/*.sql -> findings
-  report.py
-  remediate.py      change set model, plan, apply, audit
-  agent.py          AgentRuntime protocol, Copilot SDK implementation, tools
-  github_writes.py  StackQL mutations, issue and PR helpers
-checks/             one .sql per check, org/ subfolder for org-level
+src/
+  cli.ts            commander: snapshot | evaluate | plan | apply | run
+  config.ts         zod schema + loader for repo-warden.toml
+  stackql.ts        spawn stackql, run .sql files, return rows
+  snapshot.ts       runs sql/snapshot/*.sql (materialized views)
+  evaluate.ts       runs sql/checks/*.sql -> findings[]
+  report.ts         table to terminal, markdown, job summary
+  agent.ts          Copilot SDK session, tools, permission handler
+  remediate.ts      change set, plan (agent), apply (gated), issues
+  types.ts          Finding, ChangeItem, Manifest
+sql/
+  snapshot/         one .sql per inventory source
+  checks/           one .sql per check, findings schema out
+instructions/       system_prompt.md
 policy/             policy prompts (core-controls.md is the SOSF baseline)
-templates/          issue bodies, PR bodies, SECURITY.md, LICENSE options
-docs/
-tests/
+templates/          issue.md, SECURITY.md
+test/
+  fixtures/         small JSON row sets per check
+  *.test.ts
+runs/               gitignored: <run_id>.json findings per run
 ```
 
 ## Out of scope for v1

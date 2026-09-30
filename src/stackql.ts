@@ -1,0 +1,91 @@
+// Thin wrapper around the stackql binary. The only module that spawns it.
+
+import { execFile } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { promisify } from "node:util";
+import { unzipSync } from "fflate";
+
+export const PROVIDER = "github";
+export const READ_TOKEN_VAR = "REPO_WARDEN_READ_TOKEN";
+export const WRITE_TOKEN_VAR = "REPO_WARDEN_WRITE_TOKEN";
+
+const APPROOT = ".stackql";
+// materialized views only outlive the process when the backend is a file
+const BACKEND = JSON.stringify({ dsn: `file:${APPROOT}/snapshot.db` });
+const EXE = process.platform === "win32" ? "stackql.exe" : "stackql";
+const LOCAL = join(APPROOT, EXE);
+const RELEASES = "https://releases.stackql.io/stackql/latest";
+
+export type Row = Record<string, unknown>;
+
+export class StackQLError extends Error {}
+
+// indirection so tests can replace the process spawn
+export const io = { spawn: promisify(execFile) };
+
+/** The copy bootstrap downloaded if there is one, otherwise whatever is on PATH. */
+export const binary = (): string => (existsSync(LOCAL) ? LOCAL : "stackql");
+
+export async function available(): Promise<boolean> {
+  try {
+    await io.spawn(binary(), ["--version"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Download the latest stackql release into the approot. Linux and Windows only. */
+export async function install(): Promise<string> {
+  const system = process.platform === "win32" ? "windows" : process.platform;
+  if (system !== "windows" && system !== "linux") {
+    throw new StackQLError(`no automatic download for ${system}, install stackql manually`);
+  }
+  const arch = system === "linux" && process.arch === "arm64" ? "arm64" : "amd64";
+  const url = `${RELEASES}/stackql_${system}_${arch}.zip`;
+  const response = await fetch(url);
+  if (!response.ok) throw new StackQLError(`${url} returned ${response.status}`);
+  const file = unzipSync(new Uint8Array(await response.arrayBuffer()))[EXE];
+  if (!file) throw new StackQLError(`${EXE} not found in ${url}`);
+  mkdirSync(APPROOT, { recursive: true });
+  writeFileSync(LOCAL, file, { mode: 0o755 });
+  return LOCAL;
+}
+
+/** Run one statement and return what it printed. stackql exits 0 on failure. */
+export async function run(sql: string, tokenVar = READ_TOKEN_VAR) {
+  const auth = JSON.stringify({ [PROVIDER]: { type: "bearer", credentialsenvvar: tokenVar } });
+  const args = ["exec", "--approot", APPROOT, "--sqlBackend", BACKEND, "--auth", auth];
+  try {
+    const { stdout, stderr } = await io.spawn(binary(), [...args, "--output", "json", sql], {
+      maxBuffer: 2 ** 28,
+    });
+    return { stdout: stdout.trim(), stderr: stderr.trim() };
+  } catch (e) {
+    const missing = (e as NodeJS.ErrnoException).code === "ENOENT";
+    throw new StackQLError(
+      missing ? "stackql binary not found, run `npm run bootstrap`" : String(e),
+    );
+  }
+}
+
+/** Run one statement and return its rows. An error is stderr output with nothing on stdout. */
+export async function query(sql: string, tokenVar = READ_TOKEN_VAR): Promise<Row[]> {
+  const { stdout, stderr } = await run(sql, tokenVar);
+  if (!stdout && stderr) throw new StackQLError(stderr);
+  // an empty result set is printed as null
+  return stdout ? (JSON.parse(stdout) ?? []) : [];
+}
+
+export async function providerVersion(): Promise<string> {
+  const row = (await query("SHOW PROVIDERS")).find((r) => r.name === PROVIDER);
+  if (!row) throw new StackQLError(`${PROVIDER} provider not installed, run \`npm run bootstrap\``);
+  return String(row.version);
+}
+
+/** REGISTRY PULL reports success on stderr, so the result is confirmed with a read. */
+export async function pullProvider(): Promise<string> {
+  await run(`REGISTRY PULL ${PROVIDER}`);
+  return providerVersion();
+}
