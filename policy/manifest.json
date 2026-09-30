@@ -1,0 +1,15 @@
+{
+  "checks": [
+    { "id": "secret_scanning", "scope": "all", "exempt_forks": false, "exempt": [] },
+    { "id": "push_protection", "scope": "all", "exempt_forks": false, "exempt": [] },
+    { "id": "dependabot_alerts", "scope": "all", "exempt_forks": false, "exempt": [] },
+    { "id": "dependabot_security_updates", "scope": "all", "exempt_forks": false, "exempt": [] },
+    { "id": "code_scanning", "scope": "all", "exempt_forks": false, "exempt": [] },
+    { "id": "private_vuln_reporting", "scope": "all", "exempt_forks": false, "exempt": [] },
+    { "id": "default_branch_protected", "scope": "all", "exempt_forks": false, "exempt": [] },
+    { "id": "license_file", "scope": "public", "exempt_forks": true, "exempt": [] },
+    { "id": "security_md", "scope": "public", "exempt_forks": true, "exempt": [] },
+    { "id": "org_two_factor", "scope": "all", "exempt_forks": false, "exempt": [] },
+    { "id": "org_security_configuration", "scope": "all", "exempt_forks": false, "exempt": [] }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "repo-warden",
+  "version": "0.1.0",
+  "description": "Security posture audit and remediation for every repository across GitHub organizations",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "repo-warden": "src/cli.ts"
+  },
+  "scripts": {
+    "bootstrap": "node src/cli.ts bootstrap",
+    "demo": "node src/cli.ts run",
+    "check": "tsc",
+    "test": "node --test \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "@github/copilot-sdk": "^1.0.15",
+    "commander": "^15.0.0",
+    "fflate": "^0.8.3",
+    "smol-toml": "^1.9.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.0",
+    "typescript": "^7.0.2"
+  }
+}

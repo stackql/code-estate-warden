@@ -1,0 +1,22 @@
+{
+  "tables": {
+    "repos": [
+      { "org": "acme", "name": "on", "archived": 0, "private": 0 },
+      { "org": "acme", "name": "off", "archived": 0, "private": 0 },
+      { "org": "acme", "name": "private", "archived": 0, "private": 1 },
+      { "org": "acme", "name": "public-no-row", "archived": 0, "private": 0 },
+      { "org": "acme", "name": "old", "archived": 1, "private": 0 }
+    ],
+    "repo_private_vulnerability_reporting": [
+      { "org": "acme", "repo": "on", "enabled": true },
+      { "org": "acme", "repo": "off", "enabled": false }
+    ]
+  },
+  "expect": {
+    "acme/on": "pass",
+    "acme/off": "fail",
+    "acme/private": "na",
+    "acme/public-no-row": "unknown",
+    "acme/old": "na"
+  }
+}

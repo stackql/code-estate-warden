@@ -1,0 +1,25 @@
+{
+  "tables": {
+    "orgs": [
+      { "org": "default-only" },
+      { "org": "own" },
+      { "org": "enforced" },
+      { "org": "hidden" }
+    ],
+    "org_security_configurations": [
+      { "org": "default-only", "name": "GitHub recommended", "target_type": "global", "enforcement": "unenforced" },
+      { "org": "own", "name": "GitHub recommended", "target_type": "global", "enforcement": "unenforced" },
+      { "org": "own", "name": "baseline", "target_type": "organization", "enforcement": "unenforced" },
+      { "org": "enforced", "name": "GitHub recommended", "target_type": "global", "enforcement": "enforced" }
+    ]
+  },
+  "expect": { "default-only/*": "fail", "own/*": "pass", "enforced/*": "pass", "hidden/*": "unknown" },
+  "evidence": {
+    "own/*": {
+      "configurations": [
+        { "name": "GitHub recommended", "target_type": "global", "enforcement": "unenforced" },
+        { "name": "baseline", "target_type": "organization", "enforcement": "unenforced" }
+      ]
+    }
+  }
+}
