@@ -47,9 +47,10 @@ Every check emits rows with exactly these columns. Do not add per-check columns;
 | default_branch_protected | `branches/{default}/protection` OR an active ruleset targeting the default branch. Either satisfies. | setting |
 | license_file | `license` field on repo object | pr |
 | security_md | `contents/SECURITY.md` in repo, else `SECURITY.md` in the org `.github` repo. Inherited counts as pass with evidence noting inheritance. | pr |
-| archived_excluded | archived repos are `na` for every other check | none |
+| org_two_factor | `two_factor_requirement_enabled` on the org (owners only) | manual |
+| org_security_configuration | an org-owned or enforced security configuration; the unenforced global "GitHub recommended" alone is a fail | setting |
 
-Org-level checks (2FA required, org security configurations present) are named `sql/checks/org_*.sql` and emit rows with `repo = '*'`.
+Archived repos are `na` for every check; that rule lives in each check's SQL, not in a check of its own. Org-level checks are named `sql/checks/org_*.sql` and emit rows with `repo = '*'`. Every check has a fixture in `test/fixtures/<check_id>.json` and the test suite refuses a check without one.
 
 ## StackQL
 
@@ -82,7 +83,7 @@ Org-level checks (2FA required, org security configurations present) are named `
 - TypeScript on Node 24, run directly by Node (type stripping, erasable syntax only). No build step, no transpiler, no bundler. `npm` for dependencies and scripts.
 - `commander` for CLI, `zod` for models and validation, `smol-toml` for config, `node:test` for tests. Prefer the Node standard library over a dependency. `tsc` clean (`npm run check`).
 - Prose lives in `.md` files and queries live in `.sql` files. TypeScript modules load them. Do not inline prompts, templates, policy text or SQL in code.
-- CLI: `repo-warden snapshot | evaluate | plan | apply | run`. `repo-warden run` chains snapshot -> evaluate -> plan. `bootstrap` checks the stackql binary and pulls the provider.
+- CLI: `repo-warden snapshot | evaluate | plan | apply | run`. `repo-warden run` chains snapshot -> evaluate -> plan. `bootstrap` checks the stackql binary and pulls the provider. `evaluate` runs the checks, writes `runs/<run_id>.json`, prints the report (terminal, or markdown with `--markdown`), appends the GitHub Actions job summary when `GITHUB_STEP_SUMMARY` is set, and shows drift against the previous run. There are no separate report or history verbs.
 - Config in `repo-warden.toml`: enterprise slug, org allowlist, repo exclusions, model, severity mapping, issue label.
 - Tests: unit tests for every check SQL against small JSON row sets in `test/fixtures/`; no live API calls in tests. Agent layer tested with a fake runtime.
 - GitHub Actions: `.github/workflows/audit.yml` runs `repo-warden run` on a schedule and posts the job summary; never runs `apply` unattended.

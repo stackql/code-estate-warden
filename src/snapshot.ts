@@ -7,12 +7,13 @@
 // race on provider discovery and lose statements.
 
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
-import { basename, posix } from "node:path";
+import { basename, join, posix } from "node:path";
+import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import type { Config } from "./config.ts";
 import * as stackql from "./stackql.ts";
 
-const SOURCES = "sql/snapshot";
+const SOURCES = fileURLToPath(new URL("../sql/snapshot", import.meta.url));
 export const RUNS = "runs";
 const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
@@ -72,7 +73,7 @@ export async function snapshot(config: Config, log = console.log): Promise<Snaps
     const start = Date.now();
     const name = basename(file, ".sql");
     const part = posix.join(parts, `${name}.db`);
-    const { stderr } = await stackql.runFile(posix.join(SOURCES, file), vars, { db: part });
+    const { stderr } = await stackql.runFile(join(SOURCES, file), vars, { db: part });
     const conn = new DatabaseSync(part, { readOnly: true });
     const table = conn.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?");
     if (!table.get(name)) throw new Error(`${name}: view not created\n${stderr}`);

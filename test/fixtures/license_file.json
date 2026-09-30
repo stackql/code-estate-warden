@@ -1,0 +1,12 @@
+{
+  "tables": {
+    "repos": [
+      { "org": "acme", "name": "mit", "archived": 0, "private": 0, "license": { "key": "mit", "spdx_id": "MIT" } },
+      { "org": "acme", "name": "custom", "archived": 0, "private": 0, "license": { "key": "other", "spdx_id": "NOASSERTION" } },
+      { "org": "acme", "name": "none", "archived": 0, "private": 0, "license": null },
+      { "org": "acme", "name": "old", "archived": 1, "private": 0, "license": null }
+    ]
+  },
+  "expect": { "acme/mit": "pass", "acme/custom": "pass", "acme/none": "fail", "acme/old": "na" },
+  "evidence": { "acme/mit": { "spdx_id": "MIT" } }
+}

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -20,7 +20,8 @@ const fakeSpawn = async (_file: string, args: string[]) => {
   if (sql.includes("rate_limit")) return { stdout: '[{"rate":"{\\"remaining\\":5000,\\"reset\\":0}"}]', stderr: "" };
   const name = /CREATE MATERIALIZED VIEW (\w+)/.exec(sql)?.[1];
   assert.ok(name && backend, `unexpected statement: ${sql}`);
-  assert.ok(sql.includes("'acme', 'acme-labs'"), "orgs placeholder filled");
+  assert.ok(!sql.includes("{{"), "placeholders filled");
+  if (sql.includes("IN (")) assert.ok(sql.includes("IN ('acme', 'acme-labs')"), `orgs filled in ${name}`);
   const db = new DatabaseSync(JSON.parse(backend).dsn.replace("file:", ""));
   db.exec(`CREATE TABLE ${name} (login TEXT); INSERT INTO ${name} VALUES ('a'), ('b')`);
   db.close();
@@ -29,10 +30,6 @@ const fakeSpawn = async (_file: string, args: string[]) => {
 
 before(() => {
   work = mkdtempSync(join(tmpdir(), "warden-"));
-  mkdirSync(join(work, "sql/snapshot"), { recursive: true });
-  for (const name of ["whoami", "repos", "repo_thing"]) {
-    writeFileSync(join(work, `sql/snapshot/${name}.sql`), `CREATE MATERIALIZED VIEW ${name} AS SELECT 1 WHERE org IN ({{orgs}})`);
-  }
   process.chdir(work);
   mock.method(stackql.io, "spawn", fakeSpawn);
 });
@@ -54,12 +51,13 @@ test("snapshot builds every source and records the run", async () => {
   const result = await snapshot(config, (line: string) => lines.push(line));
   assert.equal(result.db, dbPath(result.run_id));
   assert.equal(result.repos, 2);
-  assert.deepEqual(result.sources.map((s) => [s.name, s.rows, s.errors]), [
-    ["repos", 2, {}],
-    ["whoami", 2, {}],
-    ["repo_thing", 2, { "404": 2, "422": 1 }],
-  ]);
-  assert.equal(lines.length, 3);
+  const expected = readdirSync(join(cwd, "sql/snapshot")).map((f) => f.replace(".sql", ""));
+  assert.deepEqual(result.sources.map((s) => s.name).sort(), expected.sort());
+  assert.equal(lines.length, expected.length);
+  const repoLevel = result.sources.filter((s) => s.name.startsWith("repo_"));
+  assert.ok(repoLevel.length > 0);
+  for (const s of repoLevel) assert.deepEqual([s.rows, s.errors], [2, { "404": 2, "422": 1 }]);
+  for (const s of result.sources.filter((s) => !s.name.startsWith("repo_"))) assert.deepEqual(s.errors, {});
 
   const db = new DatabaseSync(result.db, { readOnly: true });
   const run = db.prepare("SELECT * FROM run").get() as Record<string, unknown>;
@@ -68,9 +66,9 @@ test("snapshot builds every source and records the run", async () => {
   assert.equal(run.provider_version, "v1");
   assert.equal(run.stackql_version, "stackql v0.0.0");
   assert.equal(run.login, "a");
-  assert.equal((db.prepare("SELECT count(*) AS n FROM source").get() as { n: number }).n, 3);
+  assert.equal((db.prepare("SELECT count(*) AS n FROM source").get() as { n: number }).n, expected.length);
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all();
-  assert.deepEqual(tables.map((t) => t.name), ["repo_thing", "repos", "run", "source", "whoami"]);
+  assert.deepEqual(tables.map((t) => t.name), [...expected, "run", "source"].sort());
   db.close();
   assert.ok(!existsSync(join("runs", result.run_id)), "per source files are removed after the merge");
 });

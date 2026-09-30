@@ -1,0 +1,43 @@
+{
+  "tables": {
+    "run": [{ "run_id": "01FIXTURE0000000000000000A", "finished_at": "2026-01-02T00:00:00.000Z" }],
+    "orgs": [
+      { "org": "acme", "two_factor_requirement_enabled": true },
+      { "org": "beta", "two_factor_requirement_enabled": false }
+    ],
+    "org_security_configurations": [
+      { "org": "acme", "name": "baseline", "target_type": "organization", "enforcement": "enforced" },
+      { "org": "beta", "name": "GitHub recommended", "target_type": "global", "enforcement": "unenforced" }
+    ],
+    "repos": [
+      { "org": "acme", "name": "good", "archived": 0, "private": 0, "default_branch": "main",
+        "license": { "key": "mit", "spdx_id": "MIT" },
+        "security_and_analysis": { "secret_scanning": { "status": "enabled" }, "secret_scanning_push_protection": { "status": "enabled" }, "dependabot_security_updates": { "status": "enabled" } } },
+      { "org": "acme", "name": "bad", "archived": 0, "private": 0, "default_branch": "main", "license": null,
+        "security_and_analysis": { "secret_scanning": { "status": "disabled" }, "secret_scanning_push_protection": { "status": "disabled" }, "dependabot_security_updates": { "status": "disabled" } } },
+      { "org": "acme", "name": "old", "archived": 1, "private": 0, "default_branch": "main", "license": null, "security_and_analysis": null },
+      { "org": "beta", "name": "skip", "archived": 0, "private": 1, "default_branch": "main", "license": null, "security_and_analysis": null }
+    ],
+    "repo_private_vulnerability_reporting": [
+      { "org": "acme", "repo": "good", "enabled": true },
+      { "org": "acme", "repo": "bad", "enabled": false }
+    ],
+    "repo_default_branch": [
+      { "org": "acme", "repo": "good", "branch": "main", "protected": true, "protection": { "enabled": true } },
+      { "org": "acme", "repo": "bad", "branch": "main", "protected": false, "protection": { "enabled": false } }
+    ],
+    "repo_branch_rules": [
+      { "org": "acme", "repo": "good", "type": "pull_request", "ruleset_id": 1, "ruleset_source_type": "Repository", "ruleset_source": "acme/good" }
+    ],
+    "repo_code_scanning_default_setup": [
+      { "org": "acme", "repo": "good", "state": "configured" },
+      { "org": "acme", "repo": "bad", "state": "not-configured" }
+    ],
+    "repo_security_md": [
+      { "org": "acme", "repo": "good", "path": "SECURITY.md", "size": 10, "sha": "a" }
+    ],
+    "repo_workflows": [
+      { "org": "acme", "repo": "good", "name": "CI", "path": ".github/workflows/ci.yml", "state": "active" }
+    ]
+  }
+}

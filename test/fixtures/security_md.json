@@ -1,0 +1,28 @@
+{
+  "tables": {
+    "repos": [
+      { "org": "acme", "name": "own", "archived": 0, "private": 0 },
+      { "org": "acme", "name": "inherits", "archived": 0, "private": 0 },
+      { "org": "acme", "name": ".github", "archived": 0, "private": 0 },
+      { "org": "acme", "name": "old", "archived": 1, "private": 0 },
+      { "org": "beta", "name": "none", "archived": 0, "private": 0 },
+      { "org": "beta", "name": ".github", "archived": 0, "private": 0 }
+    ],
+    "repo_security_md": [
+      { "org": "acme", "repo": "own", "path": "SECURITY.md", "size": 100, "sha": "a" },
+      { "org": "acme", "repo": ".github", "path": "SECURITY.md", "size": 200, "sha": "b" }
+    ]
+  },
+  "expect": {
+    "acme/own": "pass",
+    "acme/inherits": "pass",
+    "acme/.github": "pass",
+    "acme/old": "na",
+    "beta/none": "fail",
+    "beta/.github": "fail"
+  },
+  "evidence": {
+    "acme/inherits": { "path": null, "inherited_from": "acme/.github" },
+    "acme/own": { "path": "SECURITY.md", "inherited_from": null }
+  }
+}

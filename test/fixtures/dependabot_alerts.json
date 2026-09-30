@@ -1,0 +1,9 @@
+{
+  "tables": {
+    "repos": [
+      { "org": "acme", "name": "live", "archived": 0 },
+      { "org": "acme", "name": "old", "archived": 1 }
+    ]
+  },
+  "expect": { "acme/live": "unknown", "acme/old": "na" }
+}

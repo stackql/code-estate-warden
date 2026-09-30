@@ -1,0 +1,36 @@
+{
+  "tables": {
+    "repos": [
+      { "org": "acme", "name": "setup", "archived": 0, "private": 0 },
+      { "org": "acme", "name": "workflow", "archived": 0, "private": 0 },
+      { "org": "acme", "name": "disabled-workflow", "archived": 0, "private": 0 },
+      { "org": "acme", "name": "none", "archived": 0, "private": 0 },
+      { "org": "acme", "name": "private-no-ghas", "archived": 0, "private": 1 },
+      { "org": "acme", "name": "public-no-row", "archived": 0, "private": 0 },
+      { "org": "acme", "name": "old", "archived": 1, "private": 0 }
+    ],
+    "repo_code_scanning_default_setup": [
+      { "org": "acme", "repo": "setup", "state": "configured" },
+      { "org": "acme", "repo": "workflow", "state": "not-configured" },
+      { "org": "acme", "repo": "disabled-workflow", "state": "not-configured" },
+      { "org": "acme", "repo": "none", "state": "not-configured" }
+    ],
+    "repo_workflows": [
+      { "org": "acme", "repo": "workflow", "name": "CodeQL", "path": ".github/workflows/codeql.yml", "state": "active" },
+      { "org": "acme", "repo": "workflow", "name": "CI", "path": ".github/workflows/ci.yml", "state": "active" },
+      { "org": "acme", "repo": "disabled-workflow", "name": "CodeQL", "path": ".github/workflows/codeql.yml", "state": "disabled_manually" }
+    ]
+  },
+  "expect": {
+    "acme/setup": "pass",
+    "acme/workflow": "pass",
+    "acme/disabled-workflow": "fail",
+    "acme/none": "fail",
+    "acme/private-no-ghas": "na",
+    "acme/public-no-row": "unknown",
+    "acme/old": "na"
+  },
+  "evidence": {
+    "acme/workflow": { "codeql_workflow": ".github/workflows/codeql.yml", "default_setup": "not-configured" }
+  }
+}

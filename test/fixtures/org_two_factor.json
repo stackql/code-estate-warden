@@ -1,0 +1,10 @@
+{
+  "tables": {
+    "orgs": [
+      { "org": "on", "two_factor_requirement_enabled": true },
+      { "org": "off", "two_factor_requirement_enabled": false },
+      { "org": "hidden", "two_factor_requirement_enabled": null }
+    ]
+  },
+  "expect": { "on/*": "pass", "off/*": "fail", "hidden/*": "unknown" }
+}
