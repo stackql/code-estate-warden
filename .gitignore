@@ -11,13 +11,15 @@ npm-debug.log*
 /stackql.exe
 stackql_*.zip
 stackql_*.pkg
+#   Audit log the stackql MCP server writes into the directory it is started in.
+stackql_mcp_server_*.log
 
 # Credentials (.env.example is the only env file that is checked in)
 .env
 .env.*
 !.env.example
 
-# repo-warden run output (findings hold the security posture of every repo)
+# code-estate-warden run output (findings hold the security posture of every repo)
 /runs/
 
 # Session hand-off notes for the next Claude Code session

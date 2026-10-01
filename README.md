@@ -1,4 +1,4 @@
-# repo-warden
+# code-estate-warden
 
 Security posture audit and remediation for every repository across your GitHub organizations. Policy is prose, evidence comes from StackQL, evaluation is SQL, and the reasoning runs on your GitHub Copilot subscription. Nothing is changed without a human saying `--apply`.
 
@@ -27,10 +27,10 @@ You need Node 24, a GitHub classic token with `repo` and `read:org` (see credent
 ```
 npm install
 npm run bootstrap            # finds or downloads stackql, pulls the github provider
-cp .env.example .env         # put the read token in REPO_WARDEN_READ_TOKEN
+cp .env.example .env         # put the read token in CODE_ESTATE_WARDEN_READ_TOKEN
 ```
 
-Edit `repo-warden.toml`: your enterprise slug, the org allowlist, and the model.
+Edit `code-estate-warden.toml`: your enterprise slug, the org allowlist, and the model.
 
 ```
 node src/cli.ts snapshot     # about two minutes for 250 repos
@@ -51,17 +51,52 @@ Dependabot alerts currently report `unknown` everywhere: the github provider can
 
 ## Applying changes
 
-`apply` without `--apply` is a dry run and needs no write token. With `--apply` it needs `REPO_WARDEN_WRITE_TOKEN` and does three kinds of thing:
+`apply` without `--apply` is a dry run and needs no write token. With `--apply` it needs `CODE_ESTATE_WARDEN_WRITE_TOKEN` and does three kinds of thing:
 
-- Settings on the `apply_checks` allowlist in `repo-warden.toml`. Today that is private vulnerability reporting: a StackQL mutation per repo, confirmed by reading the setting back.
-- Issues in the affected repos for anything that needs a maintainer, labelled `repo-warden`. Running apply again updates the same issue instead of opening another.
+- Settings on the `apply_checks` allowlist in `code-estate-warden.toml`. Today that is private vulnerability reporting: a StackQL mutation per repo, confirmed by reading the setting back.
+- Issues in the affected repos for anything that needs a maintainer, labelled `code-estate-warden`. Running apply again updates the same issue instead of opening another.
 - Issues written for the Copilot coding agent when the fix is a file (`LICENSE`, `SECURITY.md`): the body carries the file content and the acceptance criteria. `--assign-copilot` assigns them.
 
 `--filter <text>` limits apply to changes whose key contains the text, for example one repo. Archived repos, repos outside the org allowlist and anything that would disable a control are refused before any call is made.
 
+## In the Copilot CLI
+
+The same layers run inside the GitHub Copilot CLI as a terminal app. Start it in this repository, trust the folder when asked, and pick the agent:
+
+```
+copilot --agent code-estate-warden
+```
+
+The CLI loads four things from `.github/`:
+
+- An extension that registers snapshot, evaluate, the planning tools and apply as tools in your session.
+- The `code-estate-warden` agent, which gets those tools and read only StackQL and nothing else: no shell, no file edits.
+- The StackQL MCP server, for questions the findings do not answer.
+- Two skills that become slash commands.
+
+| command | what it does |
+|---|---|
+| `/evaluate` | Takes a fresh snapshot of every org, runs every check, and shows the estate as a table: one row per control, one column per org, failing out of assessed. About two minutes for 250 repos. |
+| `/evaluate latest` | The same from the newest snapshot in `runs/`, in seconds. A run id works too. |
+| `/remediate` | Plans the fix for every failing control, shows the change set and what an apply would do, then stops and asks. `/remediate <org>` limits it to one org. |
+
+Anything else is a plain request, with the same tools behind it:
+
+```
+which repos in stackql-labs have no branch protection?
+using stackql, list the owners of the stackql org
+apply private vulnerability reporting for stackql/<repo>
+```
+
+The extension's own tools run without asking. Two things always ask first: an apply that writes, and a new policy manifest. A shell command that would write to GitHub is refused in any session in this repository, so the only way to change a repo is the apply tool, which confirms each change with a read and audits it.
+
+`/remediate` plans every org in one turn, where `node src/cli.ts plan` prompts once per org. The model is the one you pick with `/model`; the `model` in `code-estate-warden.toml` only applies to `node src/cli.ts plan`. `/usage` shows what the session has used.
+
 ## Billing
 
 The agent runs on the GitHub Copilot SDK, so it is billed to the Copilot subscription of the signed-in user (or the owner of `COPILOT_GITHUB_TOKEN`). There are no model API keys. Each prompt counts as one premium request against that subscription's allowance, so the tool is built to prompt rarely: one prompt to compile the policy (only on `plan --compile-policy`), and one prompt per org that has failures when planning. Snapshot, evaluate and apply never prompt. The model is a config value; `plan` lists the available models with their multipliers if the configured one does not exist, without spending a request.
+
+Subscriptions billed in AI credits pay by tokens rather than by prompt. The tools are built for that too: they return counts and summaries, never whole reports, and the agent asks for details only where a decision depends on them.
 
 ## Credentials
 
@@ -69,8 +104,8 @@ Three tokens, one per role, never shared between roles.
 
 | variable | used by | token |
 |---|---|---|
-| `REPO_WARDEN_READ_TOKEN` | `snapshot` | classic, scopes `repo` and `read:org` |
-| `REPO_WARDEN_WRITE_TOKEN` | `apply --apply` | classic, scopes `repo` and `write:org` |
+| `CODE_ESTATE_WARDEN_READ_TOKEN` | `snapshot` | classic, scopes `repo` and `read:org` |
+| `CODE_ESTATE_WARDEN_WRITE_TOKEN` | `apply --apply` | classic, scopes `repo` and `write:org` |
 | `COPILOT_GITHUB_TOKEN` | `plan` | fine-grained, permission "Copilot Requests"; optional when `gh` is signed in |
 
 Classic tokens because a fine-grained token only reaches one org. The token owner must be an owner or security manager of each org, or GitHub hides `security_and_analysis` and those checks come back `unknown`.
@@ -82,8 +117,8 @@ Classic tokens because a fine-grained token only reaches one org. The token owne
 ## Development
 
 ```
-npm test          # 48 tests, no network, no premium requests
+npm test          # 57 tests, no network, no premium requests
 npm run check     # tsc
 ```
 
-TypeScript runs straight on Node 24 with no build step. Checks are tested against small JSON fixtures in `test/fixtures/`, the agent against a fake runtime, and apply against a fake stackql. StackQL behaviours the code works around are tracked in [#1](https://github.com/stackql/repo-warden/issues/1).
+TypeScript runs straight on Node 24 with no build step. Checks are tested against small JSON fixtures in `test/fixtures/`, the agent against a fake runtime, and apply against a fake stackql. StackQL behaviours the code works around are tracked in [#1](https://github.com/stackql/code-estate-warden/issues/1).

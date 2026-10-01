@@ -89,7 +89,7 @@ export function terminal(evaluation: Evaluation, change: Drift): string {
 }
 
 export function markdown(evaluation: Evaluation, change: Drift): string {
-  const out = [`## repo-warden ${evaluation.run_id}`, "", `Observed ${evaluation.observed_at}.`, ""];
+  const out = [`## code-estate-warden ${evaluation.run_id}`, "", `Observed ${evaluation.observed_at}.`, ""];
   out.push(`| org | check | severity | ${STATUSES.join(" | ")} |`, `|---|---|---|${"---:|".repeat(STATUSES.length)}`);
   for (const s of summarise(evaluation.findings)) {
     out.push(`| ${s.org} | ${s.check_id} | ${s.severity} | ${STATUSES.map((st) => s.counts[st]).join(" | ")} |`);
@@ -103,6 +103,36 @@ export function markdown(evaluation: Evaluation, change: Drift): string {
   list("Newly passing", change.passing);
   list("All failing", failures(evaluation.findings));
   return out.join("\n") + "\n";
+}
+
+export const MATRIX_LEGEND =
+  "Cells are failing / assessed. Assessed leaves out archived and exempt repositories. N? is repositories the token could not see. Organization level controls show the status of each organization.";
+
+/**
+ * The estate on one screen: one row per control, one column per org and one for all of them.
+ * A markdown table, with the legend under it.
+ */
+export function matrix(findings: Finding[]): string {
+  const summary = summarise(findings);
+  const orgs = [...new Set(summary.map((s) => s.org))];
+  const controls = [...new Map(summary.map((s) => [s.check_id, s.severity]))].sort(
+    (a, b) => SEVERITY[a[1]] - SEVERITY[b[1]] || a[0].localeCompare(b[0]),
+  );
+  const orgLevel = new Set(findings.filter((f) => f.repo === "*").map((f) => f.check_id));
+  const ratio = (fail: number, assessed: number, unknown: number) =>
+    [assessed ? `${fail}/${assessed}` : "", unknown ? `${unknown}?` : ""].filter(Boolean).join(" ") || "-";
+  const rows = controls.map(([check, severity]) => {
+    const perOrg = orgs.map((org) => summary.find((s) => s.org === org && s.check_id === check)?.counts);
+    const sum = (status: (typeof STATUSES)[number]) => perOrg.reduce((n, c) => n + (c?.[status] ?? 0), 0);
+    const cells = perOrg.map((c) => {
+      if (!c) return "-";
+      if (orgLevel.has(check)) return STATUSES.find((status) => status !== "na" && c[status]) ?? "na";
+      return ratio(c.fail, c.pass + c.fail, c.unknown);
+    });
+    return `| ${check} | ${severity} | ${cells.join(" | ")} | ${ratio(sum("fail"), sum("pass") + sum("fail"), sum("unknown"))} |`;
+  });
+  const header = `| control | severity | ${orgs.join(" | ")} | all |`;
+  return [header, `|---|---|${"---:|".repeat(orgs.length + 1)}`, ...rows, "", MATRIX_LEGEND].join("\n");
 }
 
 /** Append the markdown to the GitHub Actions job summary when running in Actions. */

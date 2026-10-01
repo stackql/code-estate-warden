@@ -92,14 +92,22 @@ export class CopilotRuntime implements AgentRuntime {
   }
 }
 
-/** Compile policy/core-controls.md into policy/manifest.json. One prompt. Unknown check ids are refused. */
-export async function compilePolicy(runtime: AgentRuntime, policy = readFileSync(POLICY, "utf8"), save = saveManifest): Promise<Manifest> {
-  const list = checks().map((c) => `- ${c.id}: ${c.description}`).join("\n");
-  const manifest = await runtime.ask({ prompt: instruction("compile_policy", { checks: list, policy }), tools: [], schema: Manifest });
+/** The compile prompt: the available checks and the policy text. */
+export const compileBrief = (policy = readFileSync(POLICY, "utf8")): string =>
+  instruction("compile_policy", { checks: checks().map((c) => `- ${c.id}: ${c.description}`).join("\n"), policy });
+
+/** Save a compiled manifest. Unknown check ids are refused. */
+export function acceptManifest(manifest: Manifest, save = saveManifest): Manifest {
   const unknown = manifest.checks.map((c) => c.id).filter((id) => !checkIds().includes(id));
   if (unknown.length) throw new Error(`policy names unknown checks: ${unknown.join(", ")}`);
   save(manifest);
   return manifest;
+}
+
+/** Compile policy/core-controls.md into policy/manifest.json. One prompt. */
+export async function compilePolicy(runtime: AgentRuntime, policy = readFileSync(POLICY, "utf8"), save = saveManifest): Promise<Manifest> {
+  const manifest = await runtime.ask({ prompt: compileBrief(policy), tools: [], schema: Manifest });
+  return acceptManifest(manifest, save);
 }
 
 const Proposal = z.object({
@@ -133,16 +141,19 @@ export function tools({ config, evaluation, changes }: PlanContext): AgentTool[]
   };
   const orgs = new Set(config.orgs.map((o) => o.toLowerCase()));
   const excluded = new Set(config.exclude_repos.map((r) => r.toLowerCase()));
-  const archived = new Set(
-    query((db) => db.prepare("SELECT org, name FROM repos WHERE archived = 1").all() as { org: string; name: string }[]).map((r) => `${r.org}/${r.name}`.toLowerCase()),
-  );
+  // lazy, so the tool list can be built before a snapshot exists
+  let archivedRepos: Set<string> | undefined;
+  const archived = () =>
+    (archivedRepos ??= new Set(
+      query((db) => db.prepare("SELECT org, name FROM repos WHERE archived = 1").all() as { org: string; name: string }[]).map((r) => `${r.org}/${r.name}`.toLowerCase()),
+    ));
   const finding = (org: string, repo: string, check: string) =>
     evaluation.findings.find((f) => f.org === org && f.repo === repo && f.check_id === check);
 
   const list: AgentTool[] = [
     {
       name: "list_checks",
-      description: "Every check repo-warden knows, with what it looks at.",
+      description: "Every check code-estate-warden knows, with what it looks at.",
       parameters: z.object({}),
       handler: () => checks(),
     },
@@ -192,7 +203,7 @@ export function tools({ config, evaluation, changes }: PlanContext): AgentTool[]
         const added: string[] = [];
         for (const repo of p.repos) {
           const name = `${p.org}/${repo}`;
-          if (archived.has(name.toLowerCase())) return { refused: `${name} is archived` };
+          if (archived().has(name.toLowerCase())) return { refused: `${name} is archived` };
           if (excluded.has(name.toLowerCase())) return { refused: `${name} is excluded by config` };
           const failing = repo === "*"
             ? evaluation.findings.find((f) => f.org === p.org && f.check_id === p.check_id && f.status === "fail")

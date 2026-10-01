@@ -44,7 +44,7 @@ export const checks = (): { id: string; description: string }[] =>
 export function latestRun(): string {
   const ids = existsSync(RUNS) ? readdirSync(RUNS).filter((f) => f.endsWith(".db")) : [];
   const latest = ids.sort().at(-1);
-  if (!latest) throw new Error("no snapshot in runs/, run `repo-warden snapshot` first");
+  if (!latest) throw new Error("no snapshot in runs/, run `code-estate-warden snapshot` first");
   return basename(latest, ".db");
 }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// repo-warden command line entrypoint.
+// code-estate-warden command line entrypoint.
 
 import { existsSync } from "node:fs";
 import { Command } from "commander";
@@ -13,9 +13,9 @@ import * as stackql from "./stackql.ts";
 
 if (existsSync(".env")) process.loadEnvFile();
 
-const program = new Command("repo-warden")
+const program = new Command("code-estate-warden")
   .description("Security posture audit and remediation for GitHub organizations")
-  .option("-c, --config <path>", "path to the config file", "repo-warden.toml");
+  .option("-c, --config <path>", "path to the config file", "code-estate-warden.toml");
 
 program
   .command("bootstrap")
@@ -74,7 +74,7 @@ program
 
 program
   .command("apply")
-  .description("apply a plan: dry run unless --apply, which needs REPO_WARDEN_WRITE_TOKEN")
+  .description("apply a plan: dry run unless --apply, which needs CODE_ESTATE_WARDEN_WRITE_TOKEN")
   .option("-r, --run <run_id>", "run whose plan to apply, default the latest")
   .option("--apply", "make the changes, otherwise only show what would be done")
   .option("--assign-copilot", "assign issues for file changes to the Copilot coding agent")

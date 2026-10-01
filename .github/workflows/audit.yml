@@ -15,7 +15,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     env:
-      REPO_WARDEN_READ_TOKEN: ${{ secrets.REPO_WARDEN_READ_TOKEN }}
+      CODE_ESTATE_WARDEN_READ_TOKEN: ${{ secrets.CODE_ESTATE_WARDEN_READ_TOKEN }}
       COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4

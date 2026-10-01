@@ -1,4 +1,4 @@
-# repo-warden configuration
+# code-estate-warden configuration
 
 # Enterprise slug, recorded with every run.
 enterprise = "stackql"
@@ -12,8 +12,8 @@ exclude_repos = []
 # Copilot model used by plan.
 model = "gpt-5-mini"
 
-# Label on every issue repo-warden raises, also used to find existing ones.
-issue_label = "repo-warden"
+# Label on every issue code-estate-warden raises, also used to find existing ones.
+issue_label = "code-estate-warden"
 
 # Checks whose setting changes `apply --apply` may make. Everything else stays plan only.
 apply_checks = ["private_vuln_reporting"]

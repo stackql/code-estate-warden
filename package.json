@@ -1,5 +1,5 @@
 {
-  "name": "repo-warden",
+  "name": "code-estate-warden",
   "version": "0.1.0",
   "description": "Security posture audit and remediation for every repository across GitHub organizations",
   "license": "MIT",
@@ -9,7 +9,7 @@
     "node": ">=24"
   },
   "bin": {
-    "repo-warden": "src/cli.ts"
+    "code-estate-warden": "src/cli.ts"
   },
   "scripts": {
     "bootstrap": "node src/cli.ts bootstrap",

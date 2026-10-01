@@ -75,7 +75,7 @@ function fakeStackql(issues: Record<string, string>) {
     if (sql.includes("github.users.users")) return { stdout: '[{"login":"bot"}]', stderr: "" };
     if (sql.startsWith("SELECT enabled")) return { stdout: '[{"enabled":"true"}]', stderr: "" };
     if (sql.startsWith("SELECT number")) {
-      const rows = Object.entries(issues).map(([check, number]) => ({ number, title: `[repo-warden] ${check}: x` }));
+      const rows = Object.entries(issues).map(([check, number]) => ({ number, title: `[code-estate-warden] ${check}: x` }));
       return { stdout: rows.length ? JSON.stringify(rows) : "null", stderr: "" };
     }
     if (sql.startsWith("INSERT INTO github.issues.issues")) {
@@ -98,7 +98,7 @@ test("apply is a dry run by default and needs the write token to change anything
     ["beta/*:org_two_factor:manual", "skipped", "manual"],
   ]);
   assert.equal(statements.length, 0, "a dry run spawns nothing");
-  await assert.rejects(apply(config, loadPlan(RUN), evaluation, { apply: true, assignCopilot: false }), /REPO_WARDEN_WRITE_TOKEN is not set/);
+  await assert.rejects(apply(config, loadPlan(RUN), evaluation, { apply: true, assignCopilot: false }), /CODE_ESTATE_WARDEN_WRITE_TOKEN is not set/);
 });
 
 test("apply mutates, confirms with a read, upserts issues, assigns copilot and audits", async () => {
@@ -116,7 +116,7 @@ test("apply mutates, confirms with a read, upserts issues, assigns copilot and a
   assert.match(statements[2]!, /^read: SELECT enabled FROM github.repos.private_vulnerability_reporting WHERE owner = 'acme' AND repo = 'bad'/);
   const inserts = statements.filter((s) => s.includes("INSERT INTO github.issues.issues"));
   assert.equal(inserts.length, 2, "one issue per finding, created since none were open");
-  assert.match(inserts[0]!, /^write: INSERT INTO github.issues.issues\(owner, repo, title, body, labels\) SELECT 'acme', 'bad', '\[repo-warden\] security_md: SECURITY.md', '.*Security Policy.*', '\["repo-warden"\]'/s);
+  assert.match(inserts[0]!, /^write: INSERT INTO github.issues.issues\(owner, repo, title, body, labels\) SELECT 'acme', 'bad', '\[code-estate-warden\] security_md: SECURITY.md', '.*Security Policy.*', '\["code-estate-warden"\]'/s);
   assert.ok(statements.some((s) => s.startsWith(`write: INSERT INTO github.issues.assignees(issue_number, owner, repo, assignees) SELECT 7, 'acme', 'bad', '["copilot-swe-agent[bot]"]'`)), "pr items are assigned to copilot");
   assert.ok(!statements.some((s) => s.includes("UPDATE github.issues.issues")));
   assert.equal(outcomes[1]?.note, "#7 created, assigned to copilot-swe-agent[bot]");
