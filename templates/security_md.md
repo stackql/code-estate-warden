@@ -8,4 +8,4 @@ Add a `SECURITY.md` file at the root of the default branch with the content belo
 
 - `SECURITY.md` exists at the root of the default branch of `{{org}}/{{repo}}`.
 - It tells reporters how to report a vulnerability privately and what response to expect.
-- The `security_md` check passes on the next repo-warden run.
+- The `security_md` check passes on the next code-estate-warden run.

@@ -4,4 +4,4 @@ Add a `LICENSE` file at the root of the default branch containing the standard {
 
 - `LICENSE` exists at the root of the default branch of `{{org}}/{{repo}}` and GitHub detects it as {{license}}.
 - No other file is changed.
-- The `license_file` check passes on the next repo-warden run.
+- The `license_file` check passes on the next code-estate-warden run.

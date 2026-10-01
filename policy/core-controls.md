@@ -29,7 +29,7 @@ Organization level:
 - Archived repositories are out of scope for every check.
 - Private and internal repositories are exempt from license_file and security_md.
 - Forks are exempt from license_file and security_md. The upstream owns those files.
-- Repositories listed under exclude_repos in repo-warden.toml are exempt from every check.
+- Repositories listed under exclude_repos in code-estate-warden.toml are exempt from every check.
 
 ## Remediation preferences
 

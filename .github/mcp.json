@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "stackql": {
+      "type": "local",
+      "command": "stackql",
+      "args": [
+        "mcp",
+        "--approot",
+        ".stackql",
+        "--auth",
+        "{\"github\":{\"type\":\"bearer\",\"credentialsenvvar\":\"CODE_ESTATE_WARDEN_READ_TOKEN\"}}",
+        "--mcp.server.type=stdio",
+        "--env.file",
+        ".env"
+      ],
+      "tools": [
+        "server_info",
+        "list_registry",
+        "list_providers",
+        "list_services",
+        "list_resources",
+        "describe_resource",
+        "list_methods",
+        "describe_method",
+        "validate_select_query",
+        "run_select_query",
+        "query_library_search",
+        "query_library_get"
+      ]
+    }
+  }
+}

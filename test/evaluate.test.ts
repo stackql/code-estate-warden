@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { checkIds, evaluate, findingsPath, latestRun, previousEvaluation } from "../src/evaluate.ts";
-import { drift, failures, jobSummary, markdown, summarise, terminal } from "../src/report.ts";
+import { MATRIX_LEGEND, drift, failures, jobSummary, markdown, matrix, summarise, terminal } from "../src/report.ts";
+import type { Finding } from "../src/types.ts";
 import { load, readFixture } from "./fixture.ts";
 
 const config = Config.parse({ enterprise: "acme", orgs: ["acme", "beta"], exclude_repos: ["beta/skip"], model: "m", issue_label: "l", severity: { secret_scanning: "high" as const, license_file: "low" as const } });
@@ -96,4 +97,26 @@ test("report renders the summary, sorted by org then severity", () => {
   assert.equal(readFileSync(summary, "utf8"), md);
   assert.equal(jobSummary(md), false);
   assert.ok(existsSync(findingsPath(RUN)));
+});
+
+test("matrix puts the estate on one screen: failing out of assessed per org, unknown marked, org level as status", () => {
+  const f = (org: string, repo: string, check_id: string, status: string, severity = "high") =>
+    ({ run_id: "r", org, repo, check_id, status, severity, evidence: {}, remediation: "none", observed_at: "2026-01-01T00:00:00.000Z" }) as Finding;
+  const text = matrix([
+    f("a", "x", "secret_scanning", "fail"), f("a", "y", "secret_scanning", "pass"), f("a", "z", "secret_scanning", "na"),
+    f("b", "x", "secret_scanning", "fail"), f("b", "y", "secret_scanning", "unknown"),
+    f("a", "x", "dependabot_alerts", "unknown"), f("b", "x", "dependabot_alerts", "unknown"),
+    f("a", "*", "org_two_factor", "fail"), f("b", "*", "org_two_factor", "pass"),
+    f("a", "x", "license_file", "pass", "low"),
+  ]);
+  assert.deepEqual(text.split("\n"), [
+    "| control | severity | a | b | all |",
+    "|---|---|---:|---:|---:|",
+    "| dependabot_alerts | high | 1? | 1? | 2? |",
+    "| org_two_factor | high | fail | pass | 1/2 |",
+    "| secret_scanning | high | 1/2 | 1/1 1? | 2/3 1? |",
+    "| license_file | low | 0/1 | - | 0/1 |",
+    "",
+    MATRIX_LEGEND,
+  ]);
 });

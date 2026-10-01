@@ -7,8 +7,8 @@ import { promisify } from "node:util";
 import { unzipSync } from "fflate";
 
 export const PROVIDER = "github";
-export const READ_TOKEN_VAR = "REPO_WARDEN_READ_TOKEN";
-export const WRITE_TOKEN_VAR = "REPO_WARDEN_WRITE_TOKEN";
+export const READ_TOKEN_VAR = "CODE_ESTATE_WARDEN_READ_TOKEN";
+export const WRITE_TOKEN_VAR = "CODE_ESTATE_WARDEN_WRITE_TOKEN";
 
 const APPROOT = ".stackql";
 const EXE = process.platform === "win32" ? "stackql.exe" : "stackql";
@@ -85,7 +85,7 @@ export async function run(sql: string, tokenVar = READ_TOKEN_VAR): Promise<Outpu
 
 /**
  * Rows from a statement's output. An error is stderr output with nothing on stdout, because stackql
- * exits 0 either way (stackql/stackql#801, tracked here as stackql/repo-warden#1).
+ * exits 0 either way (stackql/stackql#801, tracked here as stackql/code-estate-warden#1).
  */
 export function rows({ stdout, stderr }: Output): Row[] {
   if (!stdout && stderr) throw new StackQLError(stderr);

@@ -3,4 +3,4 @@ Protect the default branch of `{{org}}/{{repo}}` with branch protection or a rul
 ## Acceptance criteria
 
 - The default branch has an active branch protection rule or an active ruleset that targets it.
-- The `default_branch_protected` check passes on the next repo-warden run.
+- The `default_branch_protected` check passes on the next code-estate-warden run.

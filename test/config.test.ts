@@ -6,9 +6,9 @@ import { Config, loadConfig } from "../src/config.ts";
 const minimal = { enterprise: "acme", orgs: ["acme"], model: "some-model" };
 
 test("shipped config is valid", () => {
-  const config = loadConfig(join(import.meta.dirname, "..", "repo-warden.toml"));
+  const config = loadConfig(join(import.meta.dirname, "..", "code-estate-warden.toml"));
   assert.ok(config.orgs.length > 0);
-  assert.equal(config.issue_label, "repo-warden");
+  assert.equal(config.issue_label, "code-estate-warden");
 });
 
 test("defaults", () => {

@@ -1,4 +1,4 @@
-// Schema and loader for repo-warden.toml.
+// Schema and loader for code-estate-warden.toml.
 
 import { readFileSync } from "node:fs";
 import { parse } from "smol-toml";
@@ -10,7 +10,7 @@ export const Config = z.strictObject({
   orgs: z.array(z.string().min(1)).min(1),
   exclude_repos: z.array(RepoName).default([]),
   model: z.string().min(1),
-  issue_label: z.string().min(1).default("repo-warden"),
+  issue_label: z.string().min(1).default("code-estate-warden"),
   /** checks whose setting changes apply may make; everything else is plan only */
   apply_checks: z.array(z.string()).default(["private_vuln_reporting"]),
   /** SPDX id of the license proposed for repos without one */

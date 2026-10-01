@@ -40,7 +40,7 @@ const Reply = z.object({
 export const planPath = (runId: string) => posix.join(RUNS, `${runId}.plan.json`);
 
 export function loadPlan(runId: string): Plan {
-  if (!existsSync(planPath(runId))) throw new Error(`no plan ${planPath(runId)}, run \`repo-warden plan\` first`);
+  if (!existsSync(planPath(runId))) throw new Error(`no plan ${planPath(runId)}, run \`code-estate-warden plan\` first`);
   return Plan.parse(JSON.parse(readFileSync(planPath(runId), "utf8")));
 }
 
@@ -49,6 +49,33 @@ const template = (name: string, vars: Record<string, string>) => {
   return fill(readFileSync(existsSync(path) ? path : `${TEMPLATES}/generic.md`, "utf8"), vars);
 };
 
+/** The planning prompt for one org: its failing checks, its security configurations, the policy. Undefined when nothing fails. */
+export function planBrief(org: string, evaluation: Evaluation, policy = readFileSync(POLICY, "utf8")): string | undefined {
+  const failing = evaluation.findings.filter((f) => f.org === org && f.status === "fail");
+  if (!failing.length) return undefined;
+  const counts = new Map<string, number>();
+  for (const f of failing) counts.set(f.check_id, (counts.get(f.check_id) ?? 0) + 1);
+  const summary = [...counts]
+    .map(([id, n]) => {
+      const f = failing.find((x) => x.check_id === id)!;
+      return `- ${id} (${f.severity}, remediation ${f.remediation}): ${n}`;
+    })
+    .join("\n");
+  const configurations = evaluation.findings.find((f) => f.org === org && f.check_id === "org_security_configuration")?.evidence.configurations;
+  return instruction("plan", { org, run_id: evaluation.run_id, summary, configurations: JSON.stringify(configurations ?? "none"), policy });
+}
+
+/** The summary recorded for an org, with what was left out. */
+export const noteSummary = (summary: string, leftOut: string[]): string =>
+  leftOut.length ? `${summary}\nLeft out: ${leftOut.join("; ")}` : summary;
+
+/** Write the change set for a run. The whole file each time, so writing it once per org is safe. */
+export function savePlan(runId: string, model: string, items: ChangeItem[], summaries: Record<string, string>): Plan {
+  const result: Plan = { run_id: runId, created_at: new Date().toISOString(), model, items, summaries };
+  writeFileSync(planPath(runId), JSON.stringify(result, null, 1));
+  return result;
+}
+
 /** One prompt per org with failures. The agent proposes through the tools; its reply is a summary. */
 export async function plan(config: Config, runtime: AgentRuntime, evaluation: Evaluation, log = console.log): Promise<Plan> {
   const items: ChangeItem[] = [];
@@ -56,31 +83,16 @@ export async function plan(config: Config, runtime: AgentRuntime, evaluation: Ev
   const policy = readFileSync(POLICY, "utf8");
   const toolset = tools({ config, evaluation, changes: items });
   for (const org of config.orgs) {
-    const failing = evaluation.findings.filter((f) => f.org === org && f.status === "fail");
-    if (!failing.length) {
+    const prompt = planBrief(org, evaluation, policy);
+    if (!prompt) {
       log(`  ${org.padEnd(18)} nothing fails, no prompt`);
       continue;
     }
-    const counts = new Map<string, number>();
-    for (const f of failing) counts.set(f.check_id, (counts.get(f.check_id) ?? 0) + 1);
-    const summary = [...counts]
-      .map(([id, n]) => {
-        const f = failing.find((x) => x.check_id === id)!;
-        return `- ${id} (${f.severity}, remediation ${f.remediation}): ${n}`;
-      })
-      .join("\n");
-    const configurations = evaluation.findings.find((f) => f.org === org && f.check_id === "org_security_configuration")?.evidence.configurations;
-    const reply = await runtime.ask({
-      prompt: instruction("plan", { org, run_id: evaluation.run_id, summary, configurations: JSON.stringify(configurations ?? "none"), policy }),
-      tools: toolset,
-      schema: Reply,
-    });
-    summaries[org] = reply.left_out.length ? `${reply.summary}\nLeft out: ${reply.left_out.join("; ")}` : reply.summary;
+    const reply = await runtime.ask({ prompt, tools: toolset, schema: Reply });
+    summaries[org] = noteSummary(reply.summary, reply.left_out);
     log(`  ${org.padEnd(18)} ${items.filter((c) => c.org === org).length} changes proposed`);
   }
-  const result: Plan = { run_id: evaluation.run_id, created_at: new Date().toISOString(), model: config.model, items, summaries };
-  writeFileSync(planPath(evaluation.run_id), JSON.stringify(result, null, 1));
-  return result;
+  return savePlan(evaluation.run_id, config.model, items, summaries);
 }
 
 /** The plan as text: one line per group of repos that get the same change. */

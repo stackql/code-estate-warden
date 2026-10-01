@@ -1,4 +1,4 @@
-repo-warden found that `{{org}}/{{repo}}` fails the `{{check_id}}` check ({{severity}}).
+code-estate-warden found that `{{org}}/{{repo}}` fails the `{{check_id}}` check ({{severity}}).
 
 ## Finding
 
@@ -16,4 +16,4 @@ Evidence from the snapshot taken {{observed_at}}:
 
 {{details}}
 
-Run `{{run_id}}`. This issue is maintained by repo-warden and is updated in place when the finding changes.
+Run `{{run_id}}`. This issue is maintained by code-estate-warden and is updated in place when the finding changes.
