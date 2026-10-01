@@ -1,4 +1,4 @@
-// Shared models. Column names match the findings schema in CLAUDE.md, so rows need no mapping.
+// Shared models. Column names match the findings schema in AGENTS.md, so rows need no mapping.
 
 import { z } from "zod";
 
