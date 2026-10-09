@@ -1,11 +1,10 @@
--- code_scanning: default setup configured, or an active CodeQL workflow. Default setup needs GHAS
--- on private repos and GitHub answers 403 there, so an absent row on a private repo is na.
+-- code_scanning: default setup configured, or an active CodeQL workflow. Missing setup evidence
+-- is unknown, including private repos where permissions or licensing may hide the setting.
 SELECT r.org, r.name AS repo, 'code_scanning' AS check_id,
   CASE
     WHEN r.archived THEN 'na'
     WHEN d.state = 'configured' THEN 'pass'
     WHEN w.path IS NOT NULL THEN 'pass'
-    WHEN d.state IS NULL AND r.private THEN 'na'
     WHEN d.state IS NULL THEN 'unknown'
     ELSE 'fail'
   END AS status,

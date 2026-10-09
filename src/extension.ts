@@ -17,6 +17,7 @@ import { drift, matrix } from "./report.ts";
 import { snapshot } from "./snapshot.ts";
 import * as stackql from "./stackql.ts";
 import { type ChangeItem, type Finding, Manifest } from "./types.ts";
+import { Selection, select } from "./selection.ts";
 
 /** Recorded as the model of a plan made here. The CLI picks the model, not the config. */
 export const MODEL = "copilot-cli";
@@ -70,21 +71,22 @@ export function extensionTools(config: Config, state: State, log: (line: string)
   return [
     {
       name: "snapshot",
-      description: "Take a fresh inventory snapshot of every org with StackQL, about two minutes for 250 repos. It becomes the latest run; call evaluate next.",
-      parameters: z.object({}),
-      handler: async () => {
+      description: "Take a fresh inventory snapshot with StackQL, for an exact repo (org/repo or GitHub URL), one org, or every configured org. It becomes the latest run; call evaluate next with the same scope. core selects the core five plus SECURITY.md.",
+      parameters: Selection,
+      handler: async (input: Selection) => {
         const started = Date.now();
-        const result = await snapshot(config, log);
+        const scope = select(config, input);
+        const result = await snapshot(config, log, scope);
         reset();
-        return { run_id: result.run_id, repos: result.repos, orgs: config.orgs, seconds: Math.round((Date.now() - started) / 1000), next: "call evaluate" };
+        return { run_id: result.run_id, repos: result.repos, orgs: scope.org ? [scope.org] : config.orgs, seconds: Math.round((Date.now() - started) / 1000), next: "call evaluate" };
       },
     },
     {
       name: "evaluate",
-      description: "Run every check against a snapshot, the latest by default, and write the findings. Returns the repository counts per org, the estate as a markdown table (one row per control, one column per org) and the drift since the previous run. It becomes the current run and any unfinished plan is dropped.",
-      parameters: z.object({ run_id: z.string().optional().describe("a run id from runs/, default the latest snapshot") }),
-      handler: ({ run_id }: { run_id?: string }) => {
-        const evaluation = evaluate(config, run_id);
+      description: "Evaluate a snapshot, latest by default, for an exact repo, one org or all orgs; core selects the core five plus SECURITY.md. Returns scoped repository counts, a markdown table and drift. It becomes the current evaluation and drops any unfinished plan.",
+      parameters: Selection.extend({ run_id: z.string().optional().describe("a run id from runs/, default the latest snapshot") }),
+      handler: ({ run_id, ...scope }: Selection & { run_id?: string }) => {
+        const evaluation = evaluate(config, run_id, undefined, scope);
         reset(evaluation);
         const change = drift(evaluation, previousEvaluation(evaluation.run_id));
         const inventory = planning.find((t) => t.name === "get_snapshot_summary")!.handler({}) as { orgs: unknown };
@@ -127,7 +129,7 @@ export function extensionTools(config: Config, state: State, log: (line: string)
       handler: ({ org, summary, left_out }: { org: string; summary: string; left_out: string[] }) => {
         allowed(org);
         state.summaries[org] = noteSummary(summary, left_out);
-        return renderPlan(savePlan(current().run_id, MODEL, state.changes, state.summaries));
+        return renderPlan(savePlan(current().run_id, MODEL, state.changes, state.summaries, current().selection));
       },
     },
     {
@@ -139,13 +141,13 @@ export function extensionTools(config: Config, state: State, log: (line: string)
     {
       name: "apply",
       description: `Apply the plan of the current run. A dry run unless apply is true, which the person must have asked for in this turn. Applying changes settings for ${config.apply_checks.join(", ")}, creates or updates issues, needs ${stackql.WRITE_TOKEN_VAR}, and audits every change.`,
-      parameters: z.object({
+      parameters: Selection.extend({
         apply: z.boolean().default(false).describe("false shows what would be done, true makes the changes"),
         filter: z.string().optional().describe("only changes whose key contains this text, such as org/repo or a check id"),
         assign_copilot: z.boolean().default(false).describe("assign issues for file changes to the Copilot coding agent"),
       }),
-      handler: async ({ apply: write, filter, assign_copilot }: { apply: boolean; filter?: string; assign_copilot: boolean }) => {
-        const outcomes = await apply(config, planned(), current(), { apply: write, assignCopilot: assign_copilot, filter }, log);
+      handler: async ({ apply: write, filter, assign_copilot, ...scope }: Selection & { apply: boolean; filter?: string; assign_copilot: boolean }) => {
+        const outcomes = await apply(config, planned(), current(), { apply: write, assignCopilot: assign_copilot, filter, selection: scope }, log);
         const count = (result: string) => outcomes.filter((o) => o.result === result).length;
         return { dry_run: !write, applied: count("applied"), planned: count("planned"), skipped: count("skipped"), outcomes };
       },

@@ -123,6 +123,18 @@ test("save_manifest refuses unknown checks and malformed manifests before writin
   await assert.rejects(call("save_manifest", { manifest: { checks: [] } }));
 });
 
+test("extension scopes evaluation, inventory, proposals and a persisted plan to one repository", async () => {
+  const result = await json("evaluate", { run_id: RUN, repo: "https://github.com/acme/bad", core: true });
+  assert.deepEqual(result.inventory.map((row: { org: string; repos: number }) => [row.org, row.repos]), [["acme", 1]]);
+  assert.ok(state.evaluation?.findings.every((f) => f.repo === "bad"));
+  assert.deepEqual((await json("run_check", { check_id: "secret_scanning" })).failing, ["acme/bad"]);
+  assert.deepEqual((await json("run_check", { check_id: "org_two_factor" })).counts, {});
+  assert.match((await json("propose_change", { ...proposal, repos: ["*"] })).refused, /repository-scoped/);
+  assert.deepEqual(await json("propose_change", proposal), { added: ["acme/bad:security_md:pr"] });
+  await call("finish_plan", { org: "acme", summary: "one repository" });
+  assert.deepEqual(loadPlan(RUN).selection, { org: "acme", repo: "acme/bad", core: true });
+});
+
 test("the hook keeps GitHub writes in the apply tool and the run files in the tools", () => {
   const own = new Set(registered().map((t) => t.name));
   const decide = (toolName: string, toolArgs: unknown) => beforeTool({ toolName, toolArgs }, own)?.permissionDecision;

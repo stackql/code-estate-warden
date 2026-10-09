@@ -16,7 +16,7 @@ model = "gpt-5-mini"
 issue_label = "code-estate-warden"
 
 # Checks whose setting changes `apply --apply` may make. Everything else stays plan only.
-apply_checks = ["private_vuln_reporting"]
+apply_checks = ["secret_scanning", "code_scanning", "main_branch_protected", "private_vuln_reporting", "dependabot_alerts", "dependabot_security_updates"]
 
 # License proposed for repos without one (SPDX id).
 license = "MIT"
@@ -26,6 +26,7 @@ secret_scanning = "high"
 push_protection = "high"
 dependabot_alerts = "high"
 default_branch_protected = "high"
+main_branch_protected = "high"
 org_two_factor = "high"
 dependabot_security_updates = "medium"
 code_scanning = "medium"

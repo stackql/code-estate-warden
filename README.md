@@ -22,7 +22,7 @@ Steps 1, 3 and 4 are deterministic and never involve a model. Steps 2 and 5 are 
 
 The controls: secret scanning, push protection, Dependabot alerts and security updates, code scanning, private vulnerability reporting, default branch protection, a license, a `SECURITY.md`, the org 2FA requirement, and an org security configuration. A finding is `pass`, `fail`, `na` (archived, or exempt by policy) or `unknown` (the token could not see the setting). `unknown` is never treated as a failure.
 
-Dependabot alerts currently report `unknown` everywhere: the github provider cannot select that state yet ([stackql-provider-github#7](https://github.com/stackql-registry/stackql-provider-github/issues/7)).
+Dependabot alerts use a narrowly scoped HTTP GET because the GitHub provider hides the endpoint's 204/404 status ([stackql-registry/stackql-provider-github#7](https://github.com/stackql-registry/stackql-provider-github/issues/7)). This is the only direct GitHub read; all mutations still use StackQL. A 404 is treated as disabled only when repository admin access is confirmed. Otherwise it stays `unknown`. Use a classic read token with the documented `repo` scope.
 
 ## Setup
 
@@ -99,6 +99,8 @@ apply private vulnerability reporting for stackql/<repo>
 
 The first is answered from the findings with no API calls. The second goes through the StackQL MCP server, and the CLI asks you to approve the tool. The third is a real apply: it always asks first, confirms the change with a read and audits it. A shell command that would write to GitHub is refused in any session in this repository, so apply is the only way to change a repo.
 
+`/evaluate stackql/mcp-wringer core` takes a repository-only snapshot and checks the core five plus SECURITY.md. A GitHub repository URL works too. `/remediate stackql/mcp-wringer core` plans only that repository; `/remediate stackql core` plans the organization. The tools retain the exact scope in the saved plan, including across sessions.
+
 ### If something goes wrong
 
 | symptom | do this |
@@ -120,17 +122,55 @@ node src/cli.ts apply        # dry run: what --apply would do
 
 `node src/cli.ts run` does snapshot, evaluate and plan in one go. Every run leaves its snapshot (a SQLite file), findings and plan in `runs/`, and old runs stay, which is what makes drift possible.
 
+### Target a repository, organization or the core five
+
+`--repo` accepts `org/repo` or `https://github.com/org/repo`. `--org` selects one configured organization. Omitting both selects all configured organizations. The org allowlist and repository exclusions still apply. These arguments work with snapshot, evaluate, plan, apply and run.
+
+```sh
+# Check one repo without using a model
+node src/cli.ts snapshot --repo https://github.com/stackql/mcp-wringer --core
+node src/cli.ts evaluate --repo stackql/mcp-wringer --core
+
+# Plan, inspect the dry run, then explicitly apply the saved plan
+node src/cli.ts plan --repo stackql/mcp-wringer --core
+node src/cli.ts apply --repo stackql/mcp-wringer --core
+node src/cli.ts apply --repo stackql/mcp-wringer --core --apply --assign-copilot
+
+# Snapshot, evaluate and plan one org, or all allowlisted orgs
+node src/cli.ts run --org stackql --core
+node src/cli.ts run --core
+```
+
+Use `--run <run_id>` to evaluate, plan or apply an older snapshot instead of the latest. If a repo is not present in that snapshot, take a fresh snapshot rather than treating the missing repo as compliant. Evaluating one repo from an estate snapshot does not erase the other repos' persisted findings. A new plan for the same run replaces that run's previous plan; inspect the plan scope before applying.
+
+`--core` selects seven checks representing five controls plus SECURITY.md:
+
+| control | checks | automatic setting fix |
+|---|---|---|
+| Secret scanning | `secret_scanning` | Enable secret scanning |
+| Code scanning | `code_scanning` | Configure CodeQL default setup |
+| Protected branches | `main_branch_protected` | Protect only main, require a pull request with at least one approval |
+| Private vulnerability reporting | `private_vuln_reporting` | Enable reporting on eligible repositories |
+| Dependabot | `dependabot_alerts`, `dependabot_security_updates` | Enable alerts and automatic security-update PRs |
+| Security policy | `security_md` | Raise a file-change issue; optionally assign it to the Copilot coding agent |
+
+New main protection permits repository administrators to bypass and adds no required CI checks. Upgrades preserve existing reviews, required CI checks, push restrictions and admin enforcement; they never weaken stronger protection to add a bypass. Existing organization rules also remain in force. Missing or inaccessible main is `unknown`, not a request to create a branch or protect another branch. The legacy default-branch check remains available in the full policy.
+
+SECURITY.md is checked for all active repositories, including private repositories and forks; an inherited org policy counts as present. Scheduled Dependabot version updates are not included. Private vulnerability reporting is public-repo only. Private-repo secret/code scanning may require GitHub licensing and appropriate permissions. Unsupported or unconfirmed mutations produce an error, never an applied result.
+
+Older snapshots cannot provide the newly collected main and Dependabot-alerts evidence and report those checks as `unknown`. Take a fresh snapshot before planning their fixes.
+
 `.github/workflows/audit.yml` runs snapshot and evaluate on a schedule and writes the job summary. It plans only if a `COPILOT_GITHUB_TOKEN` secret is set, and it never applies.
 
 ## Applying changes
 
 `apply` without `--apply` is a dry run and needs no write token. With `--apply` it does three kinds of thing:
 
-- Settings on the `apply_checks` allowlist in `code-estate-warden.toml`. Today that is private vulnerability reporting: a StackQL mutation per repo, confirmed by reading the setting back.
+- Settings on the `apply_checks` allowlist in `code-estate-warden.toml`. The checked-in configuration allows all six core setting checks, with Dependabot counted twice. Each StackQL mutation is confirmed by reading the new state; automatic settings already enabled are skipped. Existing configurations retain their own allowlist.
 - Issues in the affected repos for anything that needs a maintainer, labelled `code-estate-warden`. Running apply again updates the same issue instead of opening another.
 - Issues written for the Copilot coding agent when the fix is a file (`LICENSE`, `SECURITY.md`). `--assign-copilot` assigns them.
 
-`--filter <text>` limits apply to changes whose key contains the text, for example one repo. Archived repos, repos outside the org allowlist and anything that would disable a control are refused before any call is made.
+Use `--repo` or `--org` for exact apply targeting. `--filter <text>` is an additional substring filter on change keys, useful for one check; it is not an exact repository selector. Saved plan scope and current evaluation scope are both enforced. Known org-level setting proposals expand only to failing repos in that scope; no organization security configuration is mutated automatically. Archived repos (including ones archived since the snapshot), excluded repos, repos outside the org allowlist, and disabling proposals are skipped.
 
 ## Billing
 

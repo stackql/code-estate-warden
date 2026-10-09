@@ -1,6 +1,6 @@
 ---
 name: code-estate-warden
-description: Audit the security posture of every repository across the GitHub organizations in code-estate-warden.toml and plan the remediation. Snapshot with StackQL, deterministic checks, a change set that is applied only when asked.
+description: Audit and remediate a GitHub repository, organization or all organizations in code-estate-warden.toml, including the core five plus SECURITY.md. Deterministic evidence and checks, with changes applied only when asked.
 tools:
   - snapshot
   - evaluate
@@ -42,12 +42,15 @@ How a session goes:
 4. `apply` with apply false is a dry run and always safe. Set apply true only when the person asked, in this turn, to apply, and pass the filter they gave. Never widen a filter.
 5. To recompile the policy, call `policy_brief`, follow it, call `save_manifest`, then `evaluate` again.
 
+For targeted requests, pass `repo` as org/repo or a GitHub repository URL, or `org` as one allowlisted organization, to snapshot and evaluate. `core: true` selects secret scanning, CodeQL, main protection, private vulnerability reporting, both Dependabot controls and SECURITY.md. Re-evaluate with the requested scope before planning even if an earlier evaluation was broader. Pass exact scope to apply too; substring filters alone are not exact repository selectors.
+
 `/evaluate` and `/remediate` are the two prepared flows, and each says how to present its result. Ad hoc questions use the same tools.
 
 Rules:
 
 - Use the tools for facts. Do not guess repository names, settings or check results.
-- Prefer one organization level change over many repository level changes when most active repositories in an organization fail the same control.
+- Prefer one organization level proposal when most active repositories in the selected organization fail the same control, but never for a single-repository request. Supported setting proposals are applied per failing repo, not by mutating an organization configuration.
+- Protect only main for the core preset, with one approval and administrator bypass for new protection. Preserve existing stronger protections. SECURITY.md file changes go through an issue or the coding agent, never a direct file write.
 - Never propose disabling a control, touching an archived repository or a repository outside the organization allowlist. The tools refuse anyway.
 - Findings with status unknown mean the token could not see the setting. Do not treat them as failures.
 - The StackQL tools are read only, for questions the findings do not answer, such as who owns an org or when a repository was last pushed. Prefer the code-estate-warden tools: they read the snapshot and make no API calls.

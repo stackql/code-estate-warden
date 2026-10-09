@@ -8,7 +8,7 @@ Origin: built during the GitHub Secure Open Source Fund (Session 5) to scale the
 
 Five layers, in order. Keep them separate. The agent only touches layers 2 and 5.
 
-1. Inventory (deterministic) - StackQL queries in `sql/snapshot/*.sql` enumerate orgs -> repos -> settings with the in memory backend; the rows are written with `node:sqlite` into a point-in-time snapshot, one table per source, in a fresh `runs/<run_id>.db`. Nothing else talks to the GitHub API for reads.
+1. Inventory (deterministic) - StackQL queries in `sql/snapshot/*.sql` enumerate orgs -> repos -> settings with the in memory backend; the rows are written with `node:sqlite` into a point-in-time snapshot, one table per source, in a fresh `runs/<run_id>.db`. The only direct GitHub read exception is `src/dependabot.ts`: GET vulnerability-alerts to observe 204/404, which the provider hides. It uses the read token, rate-limit backoff, and confirmed repo admin permission before treating 404 as disabled.
 2. Policy (agentic) - the Copilot SDK agent reads the policy prompt (`policy/core-controls.md`) and compiles it into `policy/manifest.json`: which checks are in scope, their scope (all or public repos), fork and named exemptions. Humans can hand-write the manifest and skip the agent. The manifest is checked in and only recompiled on request (`plan --compile-policy`), one prompt.
 3. Evaluate (deterministic) - each check in the manifest is a SQL query in `sql/checks/<check_id>.sql` run against the snapshot. A finding the manifest exempts becomes `na` with `evidence.exempt` giving the reason. Output is a findings table with a stable schema. No LLM involvement.
 4. Report (deterministic) - findings rendered as terminal table, markdown, and a GitHub Actions job summary. Findings are kept per run in `runs/<run_id>.json` so runs can be diffed (drift).
@@ -43,10 +43,11 @@ Every check emits rows with exactly these columns. Do not add per-check columns;
 | secret_scanning | `security_and_analysis.secret_scanning` on repo | setting (org security configuration preferred) |
 | push_protection | `security_and_analysis.secret_scanning_push_protection` | setting |
 | dependabot_alerts | `vulnerability-alerts` endpoint (204/404) | setting |
-| dependabot_security_updates | `security_and_analysis.dependabot_security_updates` | setting |
+| dependabot_security_updates | `repos.security_fixes` dedicated endpoint (`enabled` and `paused`); legacy snapshot metadata fallback | setting |
 | code_scanning | `code-scanning/default-setup` state, or presence of a CodeQL workflow | setting |
 | private_vuln_reporting | `private-vulnerability-reporting` endpoint | setting |
 | default_branch_protected | `branches/{default}/protection` OR an active ruleset targeting the default branch. Either satisfies. | setting |
+| main_branch_protected | main branch classic PR reviews or active main ruleset, at least one approval | setting |
 | license_file | `license` field on repo object | pr |
 | security_md | `contents/SECURITY.md` in repo, else `SECURITY.md` in the org `.github` repo. Inherited counts as pass with evidence noting inheritance. | pr |
 | org_two_factor | `two_factor_requirement_enabled` on the org (owners only) | manual |
@@ -96,7 +97,9 @@ Archived repos are `na` for every check; that rule lives in each check's SQL, no
 - Never mutate a repo outside the orgs listed in config. Never touch archived repos. Never disable a control.
 - Every apply writes an audit row (`who`, `what`, `before`, `after`, `run_id`) to the `audit` table in the run file.
 - `plan` is one prompt per org that has failures; orgs with nothing failing cost nothing. The change set is `runs/<run_id>.plan.json`; `apply` reads it back, so plan and apply can be separate sessions.
-- `apply` only knows the mutations in `MUTATIONS` in `remediate.ts` (v1: private vulnerability reporting), gated by `apply_checks` in config. An org level `setting` proposal for such a check is applied per failing repo, since org security configurations are not automated in v1; the audit row says so. Other org level settings, and every `manual` item, are reported and skipped.
+- `apply` only knows the settings in `SETTINGS` in `settings.ts`: secret scanning, CodeQL default setup, main protection, private vulnerability reporting, Dependabot alerts and security updates. SQL lives in `sql/mutations/` and `sql/reads/`, gated by `apply_checks` in config. An org level `setting` proposal for such a check is applied per failing repo, since org security configurations are not automated; the audit row says so. Other org level settings, and every `manual` item, are reported and skipped.
+- `--repo` accepts org/repo or a GitHub URL; `--org` selects one allowlisted org; `--core` selects the core five plus SECURITY.md. Both front ends share `selection.ts`. Repo snapshots use the single-repo endpoint plus the org `.github` security policy. Evaluation and saved plans retain exact scope; repo-scoped plans refuse org-wide proposals. Apply intersects saved-plan, evaluation and requested scope after expanding supported org proposals.
+- The main baseline requires a PR with at least one approval, administrator bypass for new protection and no new required CI checks. Existing stronger reviews, checks, restrictions and administrator enforcement are preserved. Missing main is unknown and is never created automatically. SECURITY.md is in scope for all active repositories, including private repos and forks.
 - Issue bodies come from `templates/issue.md` with the per check text from `templates/<check_id>.md` (`generic.md` otherwise). `pr` items embed the file content (`templates/SECURITY.md`) and acceptance criteria so `--assign-copilot` can hand them to the Copilot coding agent (`copilot-swe-agent[bot]`) as they are.
 
 ## Stack and conventions

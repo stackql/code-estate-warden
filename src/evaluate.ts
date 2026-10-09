@@ -11,6 +11,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { Config } from "./config.ts";
 import { RUNS, dbPath } from "./snapshot.ts";
 import { Finding, Manifest } from "./types.ts";
+import { CORE_CHECKS, Selection, select, selected } from "./selection.ts";
 
 // module relative so the CLI works from any directory; runs/ stays relative to the caller
 const CHECKS = fileURLToPath(new URL("../sql/checks", import.meta.url));
@@ -23,6 +24,7 @@ export interface Run {
 
 export interface Evaluation extends Run {
   findings: Finding[];
+  selection?: Selection;
 }
 
 export const checkIds = (): string[] =>
@@ -52,6 +54,10 @@ export const findingsPath = (runId: string) => posix.join(RUNS, `${runId}.json`)
 
 /** Run one check against an open snapshot. Rows that do not fit the findings schema throw. */
 export function runCheck(db: DatabaseSync, checkId: string, run: Run, config: Config): Finding[] {
+  for (const sql of readFileSync(join(CHECKS, "..", "compat.sql"), "utf8").split(";")) {
+    const table = /CREATE TEMP TABLE IF NOT EXISTS (\w+)/.exec(sql)?.[1];
+    if (table && !db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)) db.exec(sql);
+  }
   const sql = readFileSync(join(CHECKS, `${checkId}.sql`), "utf8");
   const severity = config.severity[checkId] ?? "medium";
   return db.prepare(sql).all().map((row) =>
@@ -88,32 +94,48 @@ function exempt(f: Finding, manifest: Manifest, facts?: RepoFacts): Finding {
 }
 
 /** Evaluate a run. The manifest defaults to the compiled policy on disk; null means no policy. */
-export function evaluate(config: Config, runId = latestRun(), manifest: Manifest | null = loadManifest() ?? null): Evaluation {
+export function evaluate(config: Config, runId = latestRun(), manifest: Manifest | null = loadManifest() ?? null, input: Selection = {}): Evaluation {
   if (!existsSync(dbPath(runId))) throw new Error(`no snapshot ${dbPath(runId)}`);
   const db = new DatabaseSync(dbPath(runId), { readOnly: true });
-  const { finished_at } = db.prepare("SELECT finished_at FROM run").get() as { finished_at: string };
-  const run = { run_id: runId, observed_at: finished_at };
-  const excluded = new Set(config.exclude_repos.map((r) => r.toLowerCase()));
-  const inScope = new Set(manifest?.checks.map((c) => c.id) ?? checkIds());
-  const facts = new Map(
-    (db.prepare("SELECT org, name, private, fork FROM repos").all() as (RepoFacts & { org: string; name: string })[])
-      .map((r) => [`${r.org}/${r.name}`, r]),
-  );
-  const findings = checkIds()
-    .filter((id) => inScope.has(id))
-    .flatMap((id) => runCheck(db, id, run, config))
-    .filter((f) => !excluded.has(`${f.org}/${f.repo}`.toLowerCase()))
-    .map((f) => (manifest ? exempt(f, manifest, facts.get(`${f.org}/${f.repo}`)) : f));
-  db.close();
-  const evaluation = { ...run, findings };
+  let evaluation: Evaluation;
+  let scope: Selection;
+  try {
+    const stored = db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'selection'").get()
+      ? Selection.parse(JSON.parse(String(db.prepare("SELECT scope FROM selection").get()?.scope))) : {};
+    if (stored.repo && input.repo && select(config, input).repo?.toLowerCase() !== stored.repo.toLowerCase()) {
+      throw new Error(`snapshot ${runId} is limited to ${stored.repo}`);
+    }
+    scope = select(config, { ...stored, ...input });
+    const { finished_at } = db.prepare("SELECT finished_at FROM run").get() as { finished_at: string };
+    const run = { run_id: runId, observed_at: finished_at };
+    const excluded = new Set(config.exclude_repos.map((r) => r.toLowerCase()));
+    const inScope = new Set(manifest?.checks.map((c) => c.id) ?? checkIds());
+    if (scope.core) for (const id of CORE_CHECKS) inScope.add(id);
+    const facts = new Map(
+      (db.prepare("SELECT org, name, private, fork FROM repos").all() as (RepoFacts & { org: string; name: string })[])
+        .map((r) => [`${r.org}/${r.name}`, r]),
+    );
+    if (scope.repo && ![...facts.keys()].some((name) => name.toLowerCase() === scope.repo!.toLowerCase())) {
+      throw new Error(`${scope.repo} is not in snapshot ${runId}; take a fresh snapshot with --repo`);
+    }
+    const findings = checkIds()
+      .filter((id) => inScope.has(id))
+      .flatMap((id) => runCheck(db, id, run, config))
+      .filter((f) => config.orgs.some((org) => org.toLowerCase() === f.org.toLowerCase()))
+      .filter((f) => !excluded.has(`${f.org}/${f.repo}`.toLowerCase()))
+      .map((f) => (manifest ? exempt(f, manifest, facts.get(`${f.org}/${f.repo}`)) : f));
+    evaluation = { ...run, findings };
+  } finally {
+    db.close();
+  }
   writeFileSync(findingsPath(runId), JSON.stringify(evaluation, null, 1));
-  return evaluation;
+  return Object.keys(scope).length ? { ...evaluation, selection: scope, findings: evaluation.findings.filter((f) => selected(f, scope)) } : evaluation;
 }
 
 /** The evaluation before the given run, if any, for drift. */
 export function previousEvaluation(runId: string): Evaluation | undefined {
   const previous = readdirSync(RUNS)
-    .filter((f) => f.endsWith(".json") && f < `${runId}.json`)
+    .filter((f) => f.endsWith(".json") && !f.endsWith(".plan.json") && f < `${runId}.json`)
     .sort()
     .at(-1);
   return previous ? JSON.parse(readFileSync(posix.join(RUNS, previous), "utf8")) : undefined;

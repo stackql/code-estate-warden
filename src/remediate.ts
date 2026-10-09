@@ -17,6 +17,8 @@ import { checks, type Evaluation } from "./evaluate.ts";
 import { RUNS, dbPath } from "./snapshot.ts";
 import * as stackql from "./stackql.ts";
 import { ChangeItem, type Finding } from "./types.ts";
+import { Selection, select, selected } from "./selection.ts";
+import { SETTINGS, enable, repository } from "./settings.ts";
 
 const TEMPLATES = fileURLToPath(new URL("../templates", import.meta.url));
 const POLICY = fileURLToPath(new URL("../policy/core-controls.md", import.meta.url));
@@ -28,6 +30,7 @@ export const Plan = z.strictObject({
   model: z.string(),
   items: z.array(ChangeItem),
   summaries: z.record(z.string(), z.string()),
+  selection: Selection.optional(),
 });
 
 export type Plan = z.infer<typeof Plan>;
@@ -62,7 +65,7 @@ export function planBrief(org: string, evaluation: Evaluation, policy = readFile
     })
     .join("\n");
   const configurations = evaluation.findings.find((f) => f.org === org && f.check_id === "org_security_configuration")?.evidence.configurations;
-  return instruction("plan", { org, run_id: evaluation.run_id, summary, configurations: JSON.stringify(configurations ?? "none"), policy });
+  return instruction("plan", { org, run_id: evaluation.run_id, summary, configurations: JSON.stringify(configurations ?? "none"), policy, scope: JSON.stringify(evaluation.selection ?? "all allowlisted repositories") });
 }
 
 /** The summary recorded for an org, with what was left out. */
@@ -70,8 +73,8 @@ export const noteSummary = (summary: string, leftOut: string[]): string =>
   leftOut.length ? `${summary}\nLeft out: ${leftOut.join("; ")}` : summary;
 
 /** Write the change set for a run. The whole file each time, so writing it once per org is safe. */
-export function savePlan(runId: string, model: string, items: ChangeItem[], summaries: Record<string, string>): Plan {
-  const result: Plan = { run_id: runId, created_at: new Date().toISOString(), model, items, summaries };
+export function savePlan(runId: string, model: string, items: ChangeItem[], summaries: Record<string, string>, selection?: Selection): Plan {
+  const result: Plan = { run_id: runId, created_at: new Date().toISOString(), model, items, summaries, ...(selection ? { selection } : {}) };
   writeFileSync(planPath(runId), JSON.stringify(result, null, 1));
   return result;
 }
@@ -92,7 +95,7 @@ export async function plan(config: Config, runtime: AgentRuntime, evaluation: Ev
     summaries[org] = noteSummary(reply.summary, reply.left_out);
     log(`  ${org.padEnd(18)} ${items.filter((c) => c.org === org).length} changes proposed`);
   }
-  return savePlan(evaluation.run_id, config.model, items, summaries);
+  return savePlan(evaluation.run_id, config.model, items, summaries, evaluation.selection);
 }
 
 /** The plan as text: one line per group of repos that get the same change. */
@@ -109,26 +112,18 @@ export function renderPlan(plan: Plan): string {
     return `  ${action.padEnd(8)} ${org.padEnd(18)} ${check_id.padEnd(28)} ${target}: ${after}  [${repos.length}] ${list}`;
   });
   const summaries = Object.entries(plan.summaries).map(([org, text]) => `${org}: ${text}`);
-  return [`plan ${plan.run_id}, ${plan.items.length} changes`, ...lines, "", ...summaries].join("\n");
+  const scope = plan.selection ? [`scope: ${plan.selection.repo ?? plan.selection.org ?? "all configured orgs"}${plan.selection.core ? ", core five + SECURITY.md" : ""}`] : [];
+  return [`plan ${plan.run_id}, ${plan.items.length} changes`, ...scope, ...lines, "", ...summaries].join("\n");
 }
 
 const lit = (value: string) => `'${value.replaceAll("'", "''")}'`;
-
-/** Setting changes apply knows how to make. Each mutation has the read that confirms it. */
-const MUTATIONS: Record<string, { what: string; mutate: (org: string, repo: string) => string; read: (org: string, repo: string) => string }> = {
-  private_vuln_reporting: {
-    what: "enable private vulnerability reporting",
-    mutate: (org, repo) =>
-      `EXEC github.repos.private_vulnerability_reporting.enable_private_vulnerability_reporting @owner = ${lit(org)}, @repo = ${lit(repo)}`,
-    read: (org, repo) => `SELECT enabled FROM github.repos.private_vulnerability_reporting WHERE owner = ${lit(org)} AND repo = ${lit(repo)}`,
-  },
-};
 
 export interface ApplyOptions {
   apply: boolean;
   assignCopilot: boolean;
   /** only items whose key contains this text */
   filter?: string;
+  selection?: Selection;
 }
 
 export interface Outcome {
@@ -141,7 +136,7 @@ export interface Outcome {
 /** An org level setting proposal for a check apply can mutate becomes one item per failing repo. */
 function expand(items: ChangeItem[], findings: Finding[]): ChangeItem[] {
   return items.flatMap((item) => {
-    if (item.repo !== "*" || item.action !== "setting" || !MUTATIONS[item.check_id]) return [item];
+    if (item.repo !== "*" || item.action !== "setting" || !SETTINGS[item.check_id]) return [item];
     return findings
       .filter((f) => f.org === item.org && f.check_id === item.check_id && f.status === "fail")
       .map((f) => ({ ...item, repo: f.repo, key: `${f.org}/${f.repo}:${f.check_id}:setting`, before: f.evidence, reason: `${item.reason} (org level proposal applied per repo)` }));
@@ -191,21 +186,32 @@ async function upsertIssue(org: string, repo: string, title: string, body: strin
 }
 
 export async function apply(config: Config, plan: Plan, evaluation: Evaluation, options: ApplyOptions, log = console.log): Promise<Outcome[]> {
+  if (plan.run_id !== evaluation.run_id) throw new Error("plan and evaluation must belong to the same run");
+  const scope = select(config, options.selection);
+  const planScope = select(config, plan.selection);
   if (options.apply && !process.env[stackql.WRITE_TOKEN_VAR]) throw new Error(`${stackql.WRITE_TOKEN_VAR} is not set`);
   const db = new DatabaseSync(dbPath(plan.run_id));
   const archived = new Set(
     (db.prepare("SELECT org, name FROM repos WHERE archived = 1").all() as { org: string; name: string }[]).map((r) => `${r.org}/${r.name}`.toLowerCase()),
   );
   const orgs = new Set(config.orgs.map((o) => o.toLowerCase()));
+  const excluded = new Set(config.exclude_repos.map((repo) => repo.toLowerCase()));
   db.exec("CREATE TABLE IF NOT EXISTS audit (run_id TEXT, key TEXT, who TEXT, what TEXT, before TEXT, after TEXT, applied_at TEXT)");
   const audit = db.prepare("INSERT INTO audit VALUES (?, ?, ?, ?, ?, ?, ?)");
-  const who = options.apply ? String((await stackql.query("SELECT login FROM github.users.users", stackql.WRITE_TOKEN_VAR))[0]?.login) : "";
+  let who = "";
   const record = (item: ChangeItem, what: string, after: unknown) =>
     audit.run(plan.run_id, item.key, who, what, JSON.stringify(item.before), JSON.stringify(after), new Date().toISOString());
 
   const outcomes: Outcome[] = [];
-  const items = expand(plan.items, evaluation.findings).filter((i) => !options.filter || i.key.includes(options.filter));
+  const items = expand(plan.items, evaluation.findings)
+    .filter((i) => selected(i, scope) && selected(i, planScope) && selected(i, evaluation.selection ?? {}) && (!options.filter || i.key.includes(options.filter)))
+    .sort((a, b) => Number(b.check_id === "dependabot_alerts") - Number(a.check_id === "dependabot_alerts"));
   try {
+    if (options.apply) {
+      const [identity] = await stackql.query("SELECT login FROM github.users.users", stackql.WRITE_TOKEN_VAR);
+      if (!identity?.login) throw new Error("write-token identity could not be confirmed");
+      who = identity.login;
+    }
     for (const item of items) await applyItem(item);
   } finally {
     db.close();
@@ -220,21 +226,33 @@ export async function apply(config: Config, plan: Plan, evaluation: Evaluation, 
       log(`  ${result.padEnd(8)} ${item.key.padEnd(60)} ${what}${note ? ` (${note})` : ""}`);
     };
     if (!orgs.has(item.org.toLowerCase())) { done("skipped", item.target, "org not in allowlist"); return; }
+    if (excluded.has(name.toLowerCase())) { done("skipped", item.target, "excluded by config"); return; }
     if (archived.has(name.toLowerCase())) { done("skipped", item.target, "archived"); return; }
+    if (!finding || finding.status !== "fail") { done("skipped", item.target, "no failing finding in the selected evaluation"); return; }
+    if (/\b(disable|disabled|off|false|remove|delete)\b/i.test(item.after)) { done("skipped", item.target, "a control is never disabled"); return; }
+    const stillActive = async () => {
+      const live = await repository(item.org, item.repo);
+      if (live.archived === "true") { done("skipped", item.target, "archived since snapshot"); return false; }
+      return true;
+    };
 
     if (item.action === "setting") {
-      const mutation = MUTATIONS[item.check_id];
+      const mutation = SETTINGS[item.check_id];
       if (!config.apply_checks.includes(item.check_id)) { done("skipped", item.target, "not in apply_checks"); return; }
       if (!mutation || item.repo === "*") { done("skipped", item.target, "no mutation for this change in v1"); return; }
       if (!options.apply) { done("planned", mutation.what); return; }
-      await stackql.run(mutation.mutate(item.org, item.repo), stackql.WRITE_TOKEN_VAR);
-      const [after] = await stackql.query(mutation.read(item.org, item.repo));
+      if (!(await stillActive())) return;
+      const before = await mutation.read(item.org, item.repo);
+      if (mutation.confirmed(before)) { done("skipped", mutation.what, "already enabled"); return; }
+      const after = await enable(item.check_id, item.org, item.repo);
       record(item, mutation.what, after);
       done("applied", mutation.what, JSON.stringify(after));
     } else if (item.action === "issue" || item.action === "pr") {
       const { title, body } = issueBody(item, finding, config, plan.run_id);
       const what = `${item.action === "pr" ? "issue for the coding agent" : "issue"}: ${title}`;
       if (!options.apply) { done("planned", what); return; }
+      if (item.repo === "*") { done("skipped", what, "organization issues are not supported"); return; }
+      if (!(await stillActive())) return;
       const issue = await upsertIssue(item.org, item.repo, title, body, item.check_id, config.issue_label);
       let note = `#${issue.number} ${issue.created ? "created" : "updated"}`;
       if (options.assignCopilot && item.action === "pr") {
