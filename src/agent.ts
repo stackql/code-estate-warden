@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { CopilotClient, defineTool, type PermissionHandler } from "@github/copilot-sdk";
 import { z } from "zod";
 import type { Config } from "./config.ts";
-import { checkIds, checks, runCheck, saveManifest, type Evaluation } from "./evaluate.ts";
+import { checkIds, checks, saveManifest, type Evaluation } from "./evaluate.ts";
 import { dbPath } from "./snapshot.ts";
 import * as stackql from "./stackql.ts";
 import { ChangeItem, type Finding, Manifest } from "./types.ts";
@@ -164,7 +164,8 @@ export function tools({ config, evaluation, changes }: PlanContext): AgentTool[]
       handler: () =>
         query((db) => ({
           run: db.prepare("SELECT run_id, finished_at AS observed_at, login, orgs FROM run").get(),
-          orgs: db.prepare("SELECT org, count(*) AS repos, sum(archived) AS archived, sum(private) AS private, sum(fork) AS forks FROM repos GROUP BY org").all(),
+          orgs: db.prepare("SELECT org, count(*) AS repos, sum(archived) AS archived, sum(private) AS private, sum(fork) AS forks FROM repos WHERE (? IS NULL OR lower(org) = lower(?)) AND (? IS NULL OR lower(org || '/' || name) = lower(?)) GROUP BY org")
+            .all(evaluation.selection?.org ?? null, evaluation.selection?.org ?? null, evaluation.selection?.repo ?? null, evaluation.selection?.repo ?? null),
         })),
     },
     {
@@ -173,8 +174,7 @@ export function tools({ config, evaluation, changes }: PlanContext): AgentTool[]
       parameters: z.object({ check_id: z.string() }),
       handler: ({ check_id }: { check_id: string }) => {
         if (!checkIds().includes(check_id)) return { error: `unknown check ${check_id}` };
-        const run = { run_id: evaluation.run_id, observed_at: evaluation.observed_at };
-        const rows = query((db) => runCheck(db, check_id, run, config)).filter((r) => !excluded.has(`${r.org}/${r.repo}`.toLowerCase()));
+        const rows = evaluation.findings.filter((f) => f.check_id === check_id);
         const counts: Record<string, number> = {};
         for (const r of rows) counts[r.status] = (counts[r.status] ?? 0) + 1;
         const failing = rows.filter((r) => r.status === "fail").map((r) => `${r.org}/${r.repo}`);
@@ -198,6 +198,7 @@ export function tools({ config, evaluation, changes }: PlanContext): AgentTool[]
       parameters: Proposal,
       handler: (p: z.infer<typeof Proposal>) => {
         if (!orgs.has(p.org.toLowerCase())) return { refused: `${p.org} is not in the org allowlist` };
+        if (evaluation.selection?.repo && p.repos.includes("*")) return { refused: "repository-scoped plans cannot propose organization-wide changes" };
         if (!checkIds().includes(p.check_id)) return { refused: `unknown check ${p.check_id}` };
         if (/\b(disable|disabled|off|false|remove|delete)\b/i.test(p.after)) return { refused: "a control is never disabled" };
         const added: string[] = [];

@@ -10,12 +10,18 @@ import { apply, loadPlan, plan, planPath, renderPlan } from "./remediate.ts";
 import { drift, jobSummary, markdown, terminal } from "./report.ts";
 import { snapshot } from "./snapshot.ts";
 import * as stackql from "./stackql.ts";
+import { select } from "./selection.ts";
 
 if (existsSync(".env")) process.loadEnvFile();
 
 const program = new Command("code-estate-warden")
   .description("Security posture audit and remediation for GitHub organizations")
-  .option("-c, --config <path>", "path to the config file", "code-estate-warden.toml");
+  .option("-c, --config <path>", "path to the config file", "code-estate-warden.toml")
+  .option("--repo <org/repo-or-url>", "limit to one repository, accepts a GitHub URL")
+  .option("--org <org>", "limit to one allowlisted organization")
+  .option("--core", "check the core five controls plus SECURITY.md");
+
+const selection = () => select(loadConfig(program.opts().config), program.opts());
 
 program
   .command("bootstrap")
@@ -32,13 +38,13 @@ program
   .action(async () => {
     const config = loadConfig(program.opts().config);
     const started = Date.now();
-    const result = await snapshot(config);
+    const result = await snapshot(config, console.log, selection());
     const seconds = Math.round((Date.now() - started) / 1000);
-    console.log(`run ${result.run_id}: ${result.repos} repos across ${config.orgs.length} orgs in ${seconds}s -> ${result.db}`);
+    console.log(`run ${result.run_id}: ${result.repos} repos across ${selection().org ? 1 : config.orgs.length} orgs in ${seconds}s -> ${result.db}`);
   });
 
 const report = (runId?: string, asMarkdown = false) => {
-  const evaluation = evaluate(loadConfig(program.opts().config), runId);
+  const evaluation = evaluate(loadConfig(program.opts().config), runId, undefined, selection());
   const change = drift(evaluation, previousEvaluation(evaluation.run_id));
   const md = markdown(evaluation, change);
   console.log(asMarkdown ? md : terminal(evaluation, change));
@@ -59,7 +65,7 @@ const makePlan = async (runId?: string, compile = false) => {
     const manifest = await compilePolicy(runtime);
     console.log(`policy compiled: ${manifest.checks.length} checks in scope\n`);
   }
-  const evaluation = evaluate(config, runId);
+  const evaluation = evaluate(config, runId, undefined, selection());
   console.log(`planning ${evaluation.run_id} with ${config.model}`);
   const result = await plan(config, runtime, evaluation);
   console.log(`\n${renderPlan(result)}\n\nwritten to ${planPath(result.run_id)}`);
@@ -81,8 +87,8 @@ program
   .option("-f, --filter <text>", "only changes whose key contains this text, e.g. an org/repo")
   .action(async (opts: { run?: string; apply?: boolean; assignCopilot?: boolean; filter?: string }) => {
     const config = loadConfig(program.opts().config);
-    const evaluation = evaluate(config, opts.run);
-    const outcomes = await apply(config, loadPlan(evaluation.run_id), evaluation, { apply: !!opts.apply, assignCopilot: !!opts.assignCopilot, filter: opts.filter });
+    const evaluation = evaluate(config, opts.run, undefined, selection());
+    const outcomes = await apply(config, loadPlan(evaluation.run_id), evaluation, { apply: !!opts.apply, assignCopilot: !!opts.assignCopilot, filter: opts.filter, selection: selection() });
     const count = (result: string) => outcomes.filter((o) => o.result === result).length;
     console.log(`\n${count("applied")} applied, ${count("planned")} planned, ${count("skipped")} skipped${opts.apply ? "" : " (dry run, add --apply to make changes)"}`);
   });
@@ -92,7 +98,7 @@ program
   .description("snapshot -> evaluate -> plan")
   .action(async () => {
     const started = Date.now();
-    const result = await snapshot(loadConfig(program.opts().config));
+    const result = await snapshot(loadConfig(program.opts().config), console.log, selection());
     console.log("");
     report(result.run_id);
     console.log("");

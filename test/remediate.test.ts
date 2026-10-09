@@ -69,11 +69,14 @@ test("plan prompts once per org with failures and writes the change set", async 
 /** Records every stackql statement and plays the issues API: open issues per check, created on insert. */
 function fakeStackql(issues: Record<string, string>) {
   const statements: string[] = [];
+  let enabled = false;
   mock.method(stackql.io, "spawn", async (_file: string, args: string[]) => {
     const sql = args.at(-1) ?? "";
     statements.push(`${args[args.indexOf("--auth") + 1]?.includes("WRITE") ? "write" : "read"}: ${sql}`);
     if (sql.includes("github.users.users")) return { stdout: '[{"login":"bot"}]', stderr: "" };
-    if (sql.startsWith("SELECT enabled")) return { stdout: '[{"enabled":"true"}]', stderr: "" };
+    if (sql.includes("FROM github.repos.details")) return { stdout: '[{"full_name":"acme/bad","archived":"false","permissions":"{\\"admin\\":true}"}]', stderr: "" };
+    if (sql.startsWith("EXEC github.repos.private_vulnerability_reporting")) enabled = true;
+    if (sql.startsWith("SELECT enabled")) return { stdout: JSON.stringify([{ enabled: String(enabled) }]), stderr: "" };
     if (sql.startsWith("SELECT number")) {
       const rows = Object.entries(issues).map(([check, number]) => ({ number, title: `[code-estate-warden] ${check}: x` }));
       return { stdout: rows.length ? JSON.stringify(rows) : "null", stderr: "" };
@@ -112,8 +115,8 @@ test("apply mutates, confirms with a read, upserts issues, assigns copilot and a
     ["beta/*:org_two_factor:manual", "skipped"],
   ]);
   assert.match(statements[0]!, /^write: SELECT login FROM github.users.users/, "the write token identifies itself");
-  assert.match(statements[1]!, /^write: EXEC github.repos.private_vulnerability_reporting.enable_private_vulnerability_reporting @owner = 'acme', @repo = 'bad'/);
-  assert.match(statements[2]!, /^read: SELECT enabled FROM github.repos.private_vulnerability_reporting WHERE owner = 'acme' AND repo = 'bad'/);
+  assert.ok(statements.some((sql) => /^write: EXEC github.repos.private_vulnerability_reporting.enable_private_vulnerability_reporting\s+@owner = 'acme', @repo = 'bad'/.test(sql)));
+  assert.ok(statements.some((sql) => /^read: SELECT enabled FROM github.repos.private_vulnerability_reporting WHERE owner = 'acme' AND repo = 'bad'/.test(sql)));
   const inserts = statements.filter((s) => s.includes("INSERT INTO github.issues.issues"));
   assert.equal(inserts.length, 2, "one issue per finding, created since none were open");
   assert.match(inserts[0]!, /^write: INSERT INTO github.issues.issues\(owner, repo, title, body, labels\) SELECT 'acme', 'bad', '\[code-estate-warden\] security_md: SECURITY.md', '.*Security Policy.*', '\["code-estate-warden"\]'/s);
@@ -148,4 +151,54 @@ test("apply skips settings that are not on the allowlist", async () => {
   const outcomes = await apply(Config.parse({ ...config, apply_checks: [] }), loadPlan(RUN), evaluation, { apply: true, assignCopilot: false, filter: "private_vuln" }, () => {});
   assert.deepEqual(outcomes.map((o) => [o.result, o.note]), [["skipped", "not in apply_checks"]]);
   assert.ok(!statements.some((s) => /^write: (EXEC|INSERT|UPDATE)/.test(s)), "nothing mutated");
+});
+
+test("a scoped plan remains scoped after reload and rejects organization-wide proposals", async () => {
+  const scoped = evaluate(config, RUN, null, { repo: "acme/bad", core: true });
+  const runtime = new FakeRuntime({ summary: "one repository" }, [
+    script[0]!,
+    { tool: "propose_change", args: { ...script[0]!.args, repos: ["bad"] } },
+  ]);
+  const result = await plan(config, runtime, scoped, () => {});
+  assert.equal(runtime.prompts.length, 1, "no prompt for unrelated organizations");
+  assert.deepEqual(result.items.map((i) => i.repo), ["bad"], "org-wide proposal refused");
+  assert.deepEqual(loadPlan(RUN).selection, scoped.selection);
+  const statements = fakeStackql({});
+  const outcomes = await apply(config, loadPlan(RUN), evaluation, { apply: false, assignCopilot: false }, () => {});
+  assert.deepEqual(outcomes.map((o) => o.key), ["acme/bad:private_vuln_reporting:setting"]);
+  assert.equal(statements.length, 0);
+});
+
+test("exact apply scope filters expanded org settings, never prefix-matching another repo", async () => {
+  const base = loadPlan(RUN);
+  const item = { ...base.items[0]!, repo: "*", key: "acme/*:private_vuln_reporting:setting" };
+  const broad = { ...base, selection: undefined, items: [item] };
+  const outcomes = await apply(config, broad, evaluation, { apply: false, assignCopilot: false, selection: { repo: "https://github.com/acme/good" } }, () => {});
+  assert.deepEqual(outcomes, [], "good has no failing finding, so expansion cannot touch bad");
+  await assert.rejects(apply(config, { ...broad, run_id: "another" }, evaluation, { apply: false, assignCopilot: false }), /same run/);
+});
+
+test("a repository archived after the snapshot is not mutated", async () => {
+  process.env[stackql.WRITE_TOKEN_VAR] = "token";
+  const statements: string[] = [];
+  mock.method(stackql.io, "spawn", async (_file: string, args: string[]) => {
+    const sql = args.at(-1)!;
+    statements.push(sql);
+    return { stdout: JSON.stringify([sql.includes("github.users.users") ? { login: "bot" } : { full_name: "acme/bad", archived: "true" }]), stderr: "" };
+  });
+  const outcomes = await apply(config, loadPlan(RUN), evaluation, { apply: true, assignCopilot: false }, () => {});
+  assert.deepEqual(outcomes.map((o) => [o.result, o.note]), [["skipped", "archived since snapshot"]]);
+  assert.ok(!statements.some((sql) => /^(UPDATE|EXEC|REPLACE|INSERT)/.test(sql)));
+});
+
+test("a repository transferred outside the target cannot be mutated", async () => {
+  process.env[stackql.WRITE_TOKEN_VAR] = "token";
+  const statements: string[] = [];
+  mock.method(stackql.io, "spawn", async (_file: string, args: string[]) => {
+    const sql = args.at(-1)!;
+    statements.push(sql);
+    return { stdout: JSON.stringify([sql.includes("github.users.users") ? { login: "bot" } : { full_name: "outside/bad", archived: "false" }]), stderr: "" };
+  });
+  await assert.rejects(apply(config, loadPlan(RUN), evaluation, { apply: true, assignCopilot: false }, () => {}), /identity changed/);
+  assert.ok(!statements.some((sql) => /^(UPDATE|EXEC|REPLACE|INSERT)/.test(sql)));
 });

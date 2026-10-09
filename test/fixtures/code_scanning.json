@@ -26,7 +26,7 @@
     "acme/workflow": "pass",
     "acme/disabled-workflow": "fail",
     "acme/none": "fail",
-    "acme/private-no-ghas": "na",
+    "acme/private-no-ghas": "unknown",
     "acme/public-no-row": "unknown",
     "acme/old": "na"
   },

@@ -2,8 +2,14 @@
   "tables": {
     "repos": [
       { "org": "acme", "name": "live", "archived": 0 },
+      { "org": "acme", "name": "on", "archived": 0 },
+      { "org": "acme", "name": "off", "archived": 0 },
       { "org": "acme", "name": "old", "archived": 1 }
+    ],
+    "repo_dependabot_alerts": [
+      { "org": "acme", "repo": "on", "enabled": true, "http_status": 204, "reason": null },
+      { "org": "acme", "repo": "off", "enabled": false, "http_status": 404, "reason": null }
     ]
   },
-  "expect": { "acme/live": "unknown", "acme/old": "na" }
+  "expect": { "acme/live": "unknown", "acme/on": "pass", "acme/off": "fail", "acme/old": "na" }
 }

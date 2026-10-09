@@ -1,0 +1,33 @@
+{
+  "tables": {
+    "repos": [
+      { "org": "acme", "name": "classic", "archived": 0 },
+      { "org": "acme", "name": "ruleset", "archived": 0 },
+      { "org": "acme", "name": "weak", "archived": 0 },
+      { "org": "acme", "name": "open", "archived": 0 },
+      { "org": "acme", "name": "missing", "archived": 0 },
+      { "org": "acme", "name": "hidden", "archived": 0 },
+      { "org": "acme", "name": "old", "archived": 1 }
+    ],
+    "repo_main_branch": [
+      { "org": "acme", "repo": "classic", "branch": "main", "protected": true },
+      { "org": "acme", "repo": "ruleset", "branch": "main", "protected": true },
+      { "org": "acme", "repo": "weak", "branch": "main", "protected": true },
+      { "org": "acme", "repo": "open", "branch": "main", "protected": false },
+      { "org": "acme", "repo": "hidden", "branch": "main", "protected": true }
+    ],
+    "repo_main_protection": [
+      { "org": "acme", "repo": "classic", "required_pull_request_reviews": { "required_approving_review_count": 2 }, "enforce_admins": { "enabled": true } },
+      { "org": "acme", "repo": "weak", "required_pull_request_reviews": { "required_approving_review_count": 0 }, "enforce_admins": { "enabled": false } }
+    ],
+    "repo_main_rules": [
+      { "org": "acme", "repo": "ruleset", "type": "pull_request", "parameters": { "required_approving_review_count": 1 } },
+      { "org": "acme", "repo": "open", "type": "deletion", "parameters": {} }
+    ]
+  },
+  "expect": {
+    "acme/classic": "pass", "acme/ruleset": "pass", "acme/weak": "fail",
+    "acme/open": "fail", "acme/missing": "unknown", "acme/hidden": "unknown", "acme/old": "na"
+  },
+  "evidence": { "acme/classic": { "branch": "main", "required_pull_request_reviews": { "required_approving_review_count": 2 } } }
+}

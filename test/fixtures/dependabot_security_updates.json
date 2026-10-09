@@ -4,9 +4,15 @@
       { "org": "acme", "name": "on", "archived": 0, "security_and_analysis": { "dependabot_security_updates": { "status": "enabled" } } },
       { "org": "acme", "name": "off", "archived": 0, "security_and_analysis": { "dependabot_security_updates": { "status": "disabled" } } },
       { "org": "acme", "name": "hidden", "archived": 0, "security_and_analysis": null },
+      { "org": "acme", "name": "paused", "archived": 0, "security_and_analysis": null },
       { "org": "acme", "name": "old", "archived": 1, "security_and_analysis": { "dependabot_security_updates": { "status": "disabled" } } }
+    ],
+    "repo_security_fixes": [
+      { "org": "acme", "repo": "on", "enabled": true, "paused": false },
+      { "org": "acme", "repo": "off", "enabled": false, "paused": false },
+      { "org": "acme", "repo": "paused", "enabled": true, "paused": true }
     ]
   },
-  "expect": { "acme/on": "pass", "acme/off": "fail", "acme/hidden": "unknown", "acme/old": "na" },
+  "expect": { "acme/on": "pass", "acme/off": "fail", "acme/hidden": "unknown", "acme/paused": "fail", "acme/old": "na" },
   "evidence": { "acme/off": { "status": "disabled" } }
 }

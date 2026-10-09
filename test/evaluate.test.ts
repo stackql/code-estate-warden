@@ -7,6 +7,7 @@ import { after, before, test } from "node:test";
 import { checkIds, evaluate, findingsPath, latestRun, previousEvaluation } from "../src/evaluate.ts";
 import { MATRIX_LEGEND, drift, failures, jobSummary, markdown, matrix, summarise, terminal } from "../src/report.ts";
 import type { Finding } from "../src/types.ts";
+import { CORE_CHECKS } from "../src/selection.ts";
 import { load, readFixture } from "./fixture.ts";
 
 const config = Config.parse({ enterprise: "acme", orgs: ["acme", "beta"], exclude_repos: ["beta/skip"], model: "m", issue_label: "l", severity: { secret_scanning: "high" as const, license_file: "low" as const } });
@@ -119,4 +120,22 @@ test("matrix puts the estate on one screen: failing out of assessed per org, unk
     "",
     MATRIX_LEGEND,
   ]);
+});
+
+test("targeted core evaluation is exact, excludes org checks and preserves the full findings artifact", () => {
+  const evaluation = evaluate(config, RUN, null, { repo: "https://github.com/acme/bad", core: true });
+  assert.equal(evaluation.findings.length, CORE_CHECKS.length);
+  assert.deepEqual(evaluation.selection, { org: "acme", repo: "acme/bad", core: true });
+  assert.ok(evaluation.findings.every((f) => f.org === "acme" && f.repo === "bad"));
+  assert.deepEqual(evaluation.findings.map((f) => f.check_id).sort(), [...CORE_CHECKS].sort());
+  const written = JSON.parse(readFileSync(findingsPath(RUN), "utf8"));
+  assert.ok(written.findings.some((f: Finding) => f.repo === "good"), "targeting an existing estate run does not erase its findings");
+  assert.throws(() => evaluate(config, RUN, null, { repo: "acme/missing" }), /not in snapshot/);
+  const org = evaluate(config, RUN, null, { org: "beta" });
+  assert.ok(org.findings.every((f) => f.org === "beta"));
+});
+
+test("drift never treats a prior plan as an evaluation", () => {
+  writeFileSync(join(work, "runs", `${PREVIOUS}.plan.json`), JSON.stringify({ items: [] }));
+  assert.equal(previousEvaluation(RUN)?.run_id, PREVIOUS);
 });
